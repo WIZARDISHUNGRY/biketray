@@ -88,22 +88,19 @@ func onReady(ctx context.Context) {
 	geoMgr := geo.NewManager(ctx, locChan)
 
 	start := time.Now()
-	csvSystems := systems.Load()        // slow!
-	clients := systems.Test(csvSystems) // slow!
-
-	dur := time.Since(start)
-	log.Println("boot duration", len(clients), dur)
-	systems.StopRecorder()
-
+	csvSystems := systems.Load() // slow!
 	topMenus := make(map[systems.System]*systray.MenuItem)
 	subMenus := make(map[systems.System][]*systray.MenuItem)
-	for system := range clients {
+	for _, system := range csvSystems {
 		name := fmt.Sprintf("%s (%s)", system.Name, system.Location)
 		fmt.Println(name)
 		mi := systray.AddMenuItem(name, system.SystemID)
 		mi.Hide()
 		topMenus[system] = mi
 	}
+
+	mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
+	mQuit.SetIcon(icon.Data)
 
 	initSubMenus := func(mi *systray.MenuItem, system systems.System) {
 		for i := 0; i < 10; i++ {
@@ -113,6 +110,11 @@ func onReady(ctx context.Context) {
 			subMenus[system] = append(subMenus[system], sub)
 		}
 	}
+	clients := systems.Test(csvSystems) // slow!
+
+	dur := time.Since(start)
+	log.Println("boot duration", len(clients), dur)
+	systems.StopRecorder()
 
 	systemsNearbyC := systems.Nearby(ctx, clients, geoMgr)
 	bsMgr := bikeshare.NewManager(ctx, geoMgr, systemsNearbyC)
@@ -126,9 +128,6 @@ func onReady(ctx context.Context) {
 	// 	mi.SetIcon(icon.Data)
 	// 	mStations = append(mStations, mi)
 	// }
-
-	mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
-	mQuit.SetIcon(icon.Data)
 
 	type activeSystem struct {
 		NearbyResult systems.NearbyResult
