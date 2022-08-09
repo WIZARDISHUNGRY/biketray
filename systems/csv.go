@@ -3,9 +3,12 @@ package systems
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"sync"
@@ -30,7 +33,7 @@ type System struct {
 	AutoDiscoveryURL string
 }
 
-func Load() map[string]System {
+func Load() []System {
 	r, err := http.NewRequest(http.MethodGet, CSV, nil)
 	if err != nil {
 		panic(err)
@@ -55,7 +58,7 @@ func Load() map[string]System {
 		panic("num calls wrong")
 	}
 
-	systems := make(map[string]System, 0)
+	systems := make([]System, 0)
 
 	for _, systemRow := range records[1:] {
 		system := System{
@@ -66,7 +69,7 @@ func Load() map[string]System {
 			URL:              systemRow[4],
 			AutoDiscoveryURL: systemRow[5],
 		}
-		systems[system.SystemID] = system
+		systems = append(systems, system)
 	}
 	for _, system := range systems {
 		fmt.Println(system.AutoDiscoveryURL)
@@ -74,8 +77,41 @@ func Load() map[string]System {
 	return systems
 }
 
-func LoadAndTest() map[System]gbfs.Client {
-	systems := Load()
+const cacheFile = "cache.json"
+
+func LoadCache() ([]System, bool) {
+	f, err := os.Open(cacheFile)
+	if err != nil {
+		log.Println("LoadCache Open", err)
+		return nil, false
+	}
+	defer f.Close()
+	d := json.NewDecoder(f)
+	var systems []System
+	err = d.Decode(&systems)
+	if err != nil {
+		log.Println("LoadCache Decode", err)
+		return nil, false
+	}
+	return systems, true
+}
+func WriteCache(systems []System) {
+	f, err := os.OpenFile(cacheFile, os.O_RDWR|os.O_CREATE, 0755)
+	if err != nil {
+		log.Println("WriteCache OpenFile", err)
+		panic("wtf")
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+	err = json.NewEncoder(f).Encode(systems)
+	if err != nil {
+		log.Println("WriteCache Encode", err)
+		panic("wtf")
+	}
+}
+
+func Test(systems []System) map[System]gbfs.Client {
 
 	// system := systems["bird-new-york"]
 
@@ -86,8 +122,9 @@ func LoadAndTest() map[System]gbfs.Client {
 		mutex         sync.Mutex
 		systemClients map[System]gbfs.Client = make(map[System]gbfs.Client)
 	)
-	for k, system := range systems {
-		_, system := k, system
+	g.SetLimit(len(systems)/4 + 16)
+	for _, system := range systems {
+		system := system
 		g.Go(func() error {
 			// if system.AutoDiscoveryURL != "https://gbfs.citibikenyc.com/gbfs/gbfs.json" {
 			// 	return nil
@@ -97,7 +134,9 @@ func LoadAndTest() map[System]gbfs.Client {
 				return nil
 			}
 			mutex.Lock()
-			systemClients[system] = c
+			if c != nil {
+				systemClients[system] = c
+			}
 			mutex.Unlock()
 			return nil
 		})
@@ -107,20 +146,23 @@ func LoadAndTest() map[System]gbfs.Client {
 	if err != nil {
 		panic(err)
 	}
-	count := 0
-	for _, c := range systemClients {
-		if c != nil {
-			count++
-		}
-	}
-	fmt.Println("done", count, len(systemClients))
+
+	fmt.Println("Test done", len(systems), len(systemClients))
 	return systemClients
 }
+
+var tr = func() *http.Transport {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	return tr
+}()
 
 func getSystemInfo(system System) gbfs.Client {
 
 	baseOpts := []gbfs.HTTPOption{
-		gbfs.HTTPOptionClient(http.Client{Timeout: 10 * time.Second}),
+		gbfs.HTTPOptionClient(http.Client{
+			Timeout:   10 * time.Second,
+			Transport: tr,
+		}),
 		gbfs.HTTPOptionBaseURL(system.AutoDiscoveryURL),
 	}
 
@@ -143,14 +185,29 @@ func getSystemInfo(system System) gbfs.Client {
 		multiOpts = newMultiOpts
 	}
 
+	var mutex sync.Mutex
+	var client gbfs.Client
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(len(multiOpts) - 1)
 	for _, opts := range multiOpts {
+		opts := opts
+		//	g.Go(func() error {
 		c := getSystemInfoWithOpts(system, opts...)
 		if c != nil {
-			return c
+			cancel()
+			mutex.Lock()
+			client = c
+			mutex.Unlock()
 		}
+		// return nil
+		//	})
+
 	}
 
-	return nil
+	return client
 }
 func getSystemInfoWithOpts(system System, opts ...gbfs.HTTPOption) gbfs.Client {
 

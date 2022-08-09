@@ -10,6 +10,7 @@ import (
 
 	"github.com/getlantern/systray"
 	"github.com/getlantern/systray/example/icon"
+	"golang.org/x/exp/maps"
 	"jonwillia.ms/biketray/bikeshare"
 	"jonwillia.ms/biketray/geo"
 	"jonwillia.ms/biketray/systems"
@@ -28,6 +29,8 @@ func onReady(ctx context.Context) {
 
 	lat := flag.Float64("lat", math.NaN(), "lat")
 	lon := flag.Float64("lon", math.NaN(), "lat")
+	flagReadCache := flag.Bool("readCache", true, "read systems cache")
+	flagWriteCache := flag.Bool("writeCache", true, "write systems cache")
 
 	flag.Parse()
 
@@ -87,7 +90,22 @@ func onReady(ctx context.Context) {
 
 	geoMgr := geo.NewManager(ctx, locChan)
 
-	clients := systems.LoadAndTest() // slow!
+	start := time.Now()
+	var csvSystems []systems.System
+	var ok bool
+	if *flagReadCache {
+		csvSystems, ok = systems.LoadCache()
+	}
+	if !ok {
+		csvSystems = systems.Load() // slow!
+	}
+	clients := systems.Test(csvSystems) // slow!
+	if *flagWriteCache {
+		systems.WriteCache(maps.Keys(clients))
+	}
+	dur := time.Since(start)
+	log.Println("boot duration", dur)
+
 	topMenus := make(map[systems.System]*systray.MenuItem)
 	subMenus := make(map[systems.System][]*systray.MenuItem)
 	for system := range clients {
@@ -133,7 +151,9 @@ func onReady(ctx context.Context) {
 		case <-mQuit.ClickedCh: // TODO all click handlers should be in a tight loop because there is a default
 			systray.Quit()
 		case nr := <-bsMgr.NearbyResults():
+			log.Println("visible systems update", len(nr))
 			for system, mi := range topMenus {
+
 				if _, ok := nr[system]; ok {
 					fmt.Println("show", system.Name)
 					mi.Show()
@@ -142,7 +162,6 @@ func onReady(ctx context.Context) {
 				}
 			}
 		case cr := <-bsMgr.ClientResults():
-			fmt.Println("cr")
 			mCiti, ok := topMenus[cr.System]
 			if !ok {
 				log.Println("mCiti, ok := topMenus[cr.System]")

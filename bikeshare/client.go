@@ -46,10 +46,68 @@ func (c *Client) run(ctx context.Context) {
 	geo1 := ellipsoid.Init("WGS84", ellipsoid.Degrees, ellipsoid.Meter, ellipsoid.LongitudeIsSymmetric, ellipsoid.BearingIsSymmetric)
 	sparklines := make(map[string][]float64)
 
-	nextUpdate := time.Now()
 	location := <-locationC
-NEXT_ITER:
-	for {
+	for ctx.Err() == nil {
+
+		if ctx.Err() != nil {
+			return
+		}
+
+		var ss gbfsspec.FeedStationStatus
+		if err := c.nearbyResult.Client.Get(gbfsspec.FeedKeyStationStatus, &ss); err != nil {
+			log.Println("FeedKeyStationStatus", err)
+			continue
+		}
+		stationMap := make(map[string]gbfsspec.StationStatus, len(ss.Data.Stations))
+		for _, st := range ss.Data.Stations {
+			stationMap[st.StationID] = st
+			frac := float64(st.NumBikesAvailable)
+			sparklines[st.StationID] = append([]float64{frac}, sparklines[st.StationID]...)
+			if len(sparklines[st.StationID]) > sparklineLen {
+				sparklines[st.StationID] = sparklines[st.StationID][:sparklineLen]
+			}
+		}
+		nextUpdate := time.Now().Add(pollInterval)
+
+	NEXT_LOC:
+		dist := func(s gbfsspec.StationInformation) float64 {
+			lat, lon := location.Lat, location.Lon
+			distance, _ := geo1.To(lat, lon, s.Latitude, s.Longitude)
+			return distance
+		}
+		slices.SortFunc(c.nearbyResult.FeedStationInformation.Data.Stations, func(a, b gbfsspec.StationInformation) bool {
+			return dist(a) < dist(b)
+		})
+
+		var output []string = make([]string, 0, len(c.nearbyResult.FeedStationInformation.Data.Stations))
+
+		for _, s := range c.nearbyResult.FeedStationInformation.Data.Stations {
+			lat, lon := location.Lat, location.Lon
+			distance, bearing := geo1.To(lat, lon, s.Latitude, s.Longitude)
+
+			statusStr := "?????"
+			st, ok := stationMap[s.StationID]
+			if ok {
+				sl := string([]rune(spark.Line(append([]float64{0}, sparklines[s.StationID]...)))[1:])
+				statusStr = fmt.Sprintf("%2.1d/%2.1d %s", st.NumBikesAvailable, s.Capacity, sl)
+			}
+
+			unit := "m"
+			if distance > 10000 {
+				unit = "km"
+				distance /= 1000
+			}
+
+			str := fmt.Sprintf("%s (%4.1f%s %2s)\n%s", s.Name, distance, unit, direction(bearing), statusStr)
+			output = append(output, str)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		log.Println("client out", len(c.nearbyResult.FeedStationInformation.Data.Stations))
+		c.mgr.clientResult(c.nearbyResult.System, output)
 
 		select {
 		case <-ctx.Done():
@@ -57,56 +115,9 @@ NEXT_ITER:
 		case <-time.After(time.Until(nextUpdate)):
 		case location = <-locationC:
 			fmt.Println("client loc")
-			goto NEXT_ITER
+			goto NEXT_LOC
 		}
 
-		nextUpdate = time.Now().Add(pollInterval)
-
-		if ctx.Err() != nil {
-			return
-		}
-		lat, lon := location.Lat, location.Lon
-		dist := func(s gbfsspec.StationInformation) float64 {
-			distance, _ := geo1.To(lat, lon, s.Latitude, s.Longitude)
-			return distance
-		}
-
-		slices.SortFunc(c.nearbyResult.FeedStationInformation.Data.Stations, func(a, b gbfsspec.StationInformation) bool {
-			return dist(a) < dist(b)
-		})
-
-		var ss gbfsspec.FeedStationStatus
-		if err := c.nearbyResult.Client.Get(gbfsspec.FeedKeyStationStatus, &ss); err != nil {
-			log.Println("FeedKeyStationStatus", err)
-			continue
-		}
-		stationMap := make(map[string]gbfsspec.StationStatus)
-		for _, s := range ss.Data.Stations {
-			stationMap[s.StationID] = s
-		}
-
-		output := make([]string, 0)
-
-		for _, s := range c.nearbyResult.FeedStationInformation.Data.Stations {
-			distance, bearing := geo1.To(lat, lon, s.Latitude, s.Longitude)
-
-			statusStr := "?????"
-			st, ok := stationMap[s.StationID]
-			if ok {
-				frac := float64(st.NumBikesAvailable)
-				sparklines[s.StationID] = append([]float64{frac}, sparklines[s.StationID]...)
-				if len(sparklines[s.StationID]) > sparklineLen {
-					sparklines[s.StationID] = sparklines[s.StationID][:sparklineLen]
-				}
-				sl := string([]rune(spark.Line(append([]float64{0}, sparklines[s.StationID]...)))[1:])
-				statusStr = fmt.Sprintf("%2.1d/%2.1d %s", st.NumBikesAvailable, s.Capacity, sl)
-			}
-
-			str := fmt.Sprintf("%s (%4.1fm %2s)\n%s", s.Name, distance, direction(bearing), statusStr)
-			output = append(output, str)
-		}
-		fmt.Println("client out", len(c.nearbyResult.FeedStationInformation.Data.Stations))
-		c.mgr.clientResult(c.nearbyResult.System, output)
 	}
 
 }
