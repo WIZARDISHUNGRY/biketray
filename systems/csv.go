@@ -283,78 +283,94 @@ type NearbyResult struct {
 	Client gbfs.Client
 }
 
-func Nearby(ctx context.Context, clients map[System]gbfs.Client, mgr *geo.Manager) <-chan map[System]NearbyResult {
+func Nearby(ctx context.Context, clientsC <-chan map[System]gbfs.Client, mgr *geo.Manager) <-chan map[System]NearbyResult {
 	c := make(chan map[System]NearbyResult, 1)
 	geo1 := ellipsoid.Init("WGS84", ellipsoid.Degrees, ellipsoid.Meter, ellipsoid.LongitudeIsSymmetric, ellipsoid.BearingIsSymmetric)
 
 	go func() {
-
 		locC := mgr.Subscribe()
 		defer mgr.Unsubscribe(locC)
-		location := <-locC
 
-		g, _ := errgroup.WithContext(ctx)
-		var (
-			mutex       sync.Mutex
-			initResults map[System]NearbyResult = make(map[System]NearbyResult)
-		)
+		var location geo.LocationInfo
 
-		for system, client := range clients {
-			system, client := system, client
-			g.Go(func() error {
-				var si gbfsspec.FeedStationInformation
-
-				if err := client.Get(gbfsspec.FeedKeyStationInformation, &si); err != nil {
-					fmt.Println("station info", err)
-					return nil
-				}
-
-				mutex.Lock()
-				initResults[system] = NearbyResult{
-					System:                 system,
-					FeedStationInformation: si,
-					// StationInformation:     station,
-					Client: client,
-				}
-				mutex.Unlock()
-
-				return nil
-			})
+		select {
+		case location = <-locC:
+		case <-ctx.Done():
+			return
 		}
-
-		if err := g.Wait(); err != nil {
-			panic(err)
-		}
-
-		for ctx.Err() == nil {
-
-			dist := func(s gbfsspec.StationInformation) float64 {
-				distance, _ := geo1.To(location.Lat, location.Lon, s.Latitude, s.Longitude)
-				return distance
-			}
-
-			var results map[System]NearbyResult = make(map[System]NearbyResult)
-
-		NEXT_SYSTEM:
-			for k, v := range initResults {
-				for _, station := range v.FeedStationInformation.Data.Stations {
-					d := dist(station)
-					if d < systemDist {
-						fmt.Println("station in range", v.System.Name, station.Name, d)
-						results[k] = v
-						continue NEXT_SYSTEM
-					}
-				}
-			}
-
-			fmt.Println("Nearby", len(results))
-			c <- results
+		var clients map[System]gbfs.Client
+	MAIN_LOOP:
+		for {
 			select {
+			case location = <-locC:
+				continue MAIN_LOOP
 			case <-ctx.Done():
 				return
-			case location = <-locC:
+			case clients = <-clientsC:
 			}
 
+			g, _ := errgroup.WithContext(ctx)
+			var (
+				mutex       sync.Mutex
+				initResults map[System]NearbyResult = make(map[System]NearbyResult)
+			)
+
+			for system, client := range clients {
+				system, client := system, client
+				g.Go(func() error {
+					var si gbfsspec.FeedStationInformation
+
+					if err := client.Get(gbfsspec.FeedKeyStationInformation, &si); err != nil {
+						fmt.Println("station info", err)
+						return nil
+					}
+
+					mutex.Lock()
+					initResults[system] = NearbyResult{
+						System:                 system,
+						FeedStationInformation: si,
+						// StationInformation:     station,
+						Client: client,
+					}
+					mutex.Unlock()
+
+					return nil
+				})
+			}
+
+			if err := g.Wait(); err != nil {
+				panic(err)
+			}
+
+			for ctx.Err() == nil {
+
+				dist := func(s gbfsspec.StationInformation) float64 {
+					distance, _ := geo1.To(location.Lat, location.Lon, s.Latitude, s.Longitude)
+					return distance
+				}
+
+				var results map[System]NearbyResult = make(map[System]NearbyResult)
+
+			NEXT_SYSTEM:
+				for k, v := range initResults {
+					for _, station := range v.FeedStationInformation.Data.Stations {
+						d := dist(station)
+						if d < systemDist {
+							fmt.Println("station in range", v.System.Name, station.Name, d)
+							results[k] = v
+							continue NEXT_SYSTEM
+						}
+					}
+				}
+
+				fmt.Println("Nearby", len(results))
+				c <- results
+				select {
+				case <-ctx.Done():
+					return
+				case location = <-locC:
+				}
+			}
 		}
 	}()
 	return c

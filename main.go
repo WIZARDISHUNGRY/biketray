@@ -8,6 +8,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/Eraac/gbfs"
 	"github.com/getlantern/systray"
 	"github.com/getlantern/systray/example/icon"
 	"jonwillia.ms/biketray/bikeshare"
@@ -110,13 +111,21 @@ func onReady(ctx context.Context) {
 			subMenus[system] = append(subMenus[system], sub)
 		}
 	}
-	clients := systems.Test(csvSystems) // slow!
 
-	dur := time.Since(start)
-	log.Println("boot duration", len(clients), dur)
-	systems.StopRecorder()
+	clientsC := make(chan map[systems.System]gbfs.Client, 1)
+	go func() {
+		clients := systems.Test(csvSystems) // slow!
+		dur := time.Since(start)
+		log.Println("boot duration", len(clients), dur)
+		systems.StopRecorder()
+		select {
+		case <-ctx.Done():
+			return
+		case clientsC <- clients:
+		}
+	}()
 
-	systemsNearbyC := systems.Nearby(ctx, clients, geoMgr)
+	systemsNearbyC := systems.Nearby(ctx, clientsC, geoMgr)
 	bsMgr := bikeshare.NewManager(ctx, geoMgr, systemsNearbyC)
 	// Sets the icon of a menu item. Only available on Mac and Windows.
 
