@@ -10,7 +10,6 @@ import (
 
 	"github.com/getlantern/systray"
 	"github.com/getlantern/systray/example/icon"
-	"golang.org/x/exp/maps"
 	"jonwillia.ms/biketray/bikeshare"
 	"jonwillia.ms/biketray/geo"
 	"jonwillia.ms/biketray/systems"
@@ -29,8 +28,6 @@ func onReady(ctx context.Context) {
 
 	lat := flag.Float64("lat", math.NaN(), "lat")
 	lon := flag.Float64("lon", math.NaN(), "lat")
-	flagReadCache := flag.Bool("readCache", true, "read systems cache")
-	flagWriteCache := flag.Bool("writeCache", true, "write systems cache")
 
 	flag.Parse()
 
@@ -91,20 +88,12 @@ func onReady(ctx context.Context) {
 	geoMgr := geo.NewManager(ctx, locChan)
 
 	start := time.Now()
-	var csvSystems []systems.System
-	var ok bool
-	if *flagReadCache {
-		csvSystems, ok = systems.LoadCache()
-	}
-	if !ok {
-		csvSystems = systems.Load() // slow!
-	}
+	csvSystems := systems.Load()        // slow!
 	clients := systems.Test(csvSystems) // slow!
-	if *flagWriteCache {
-		systems.WriteCache(maps.Keys(clients))
-	}
+
 	dur := time.Since(start)
-	log.Println("boot duration", dur)
+	log.Println("boot duration", len(clients), dur)
+	systems.StopRecorder()
 
 	topMenus := make(map[systems.System]*systray.MenuItem)
 	subMenus := make(map[systems.System][]*systray.MenuItem)

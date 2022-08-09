@@ -6,6 +6,7 @@ require (
 	bitbucket.org/dtolpin/gosparkline v0.1.0 // indirect
 	github.com/Eraac/gbfs v0.0.0-20200518174807-3e6c5b1c3d08 // indirect
 	github.com/StefanSchroeder/Golang-Ellipsoid v0.0.0-20200928074047-3758eb9e9574 // indirect
+	github.com/dnaeon/go-vcr/v2 v2.0.1 // indirect
 	github.com/getlantern/context v0.0.0-20190109183933-c447772a6520 // indirect
 	github.com/getlantern/errors v0.0.0-20190325191628-abdb3e3e36f7 // indirect
 	github.com/getlantern/golog v0.0.0-20190830074920-4ef2e798c2d7 // indirect
@@ -20,4 +21,5 @@ require (
 	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e // indirect
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4 // indirect
 	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

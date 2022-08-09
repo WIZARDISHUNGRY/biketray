@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"strings"
 	"sync"
@@ -17,12 +16,13 @@ import (
 	"github.com/Eraac/gbfs"
 	gbfsspec "github.com/Eraac/gbfs/spec/v2.0"
 	"github.com/StefanSchroeder/Golang-Ellipsoid/ellipsoid"
+	"github.com/dnaeon/go-vcr/v2/recorder"
 	"golang.org/x/sync/errgroup"
 	"jonwillia.ms/biketray/geo"
 )
 
 const CSV = "https://raw.githubusercontent.com/NABSA/gbfs/master/systems.csv"
-const systemDist = 15000 // meters
+const systemDist = 60000 // meters
 
 type System struct {
 	CountryCode      string
@@ -38,7 +38,7 @@ func Load() []System {
 	if err != nil {
 		panic(err)
 	}
-	resp, err := http.DefaultClient.Do(r)
+	resp, err := httpClient.Do(r)
 	if err != nil {
 		panic(err)
 	}
@@ -77,40 +77,6 @@ func Load() []System {
 	return systems
 }
 
-const cacheFile = "cache.json"
-
-func LoadCache() ([]System, bool) {
-	f, err := os.Open(cacheFile)
-	if err != nil {
-		log.Println("LoadCache Open", err)
-		return nil, false
-	}
-	defer f.Close()
-	d := json.NewDecoder(f)
-	var systems []System
-	err = d.Decode(&systems)
-	if err != nil {
-		log.Println("LoadCache Decode", err)
-		return nil, false
-	}
-	return systems, true
-}
-func WriteCache(systems []System) {
-	f, err := os.OpenFile(cacheFile, os.O_RDWR|os.O_CREATE, 0755)
-	if err != nil {
-		log.Println("WriteCache OpenFile", err)
-		panic("wtf")
-	}
-	defer func() {
-		_ = f.Close()
-	}()
-	err = json.NewEncoder(f).Encode(systems)
-	if err != nil {
-		log.Println("WriteCache Encode", err)
-		panic("wtf")
-	}
-}
-
 func Test(systems []System) map[System]gbfs.Client {
 
 	// system := systems["bird-new-york"]
@@ -126,18 +92,18 @@ func Test(systems []System) map[System]gbfs.Client {
 	for _, system := range systems {
 		system := system
 		g.Go(func() error {
-			// if system.AutoDiscoveryURL != "https://gbfs.citibikenyc.com/gbfs/gbfs.json" {
+			// if system.AutoDiscoveryURL != "https://data.lime.bike/api/partners/v2/gbfs/new_york/gbfs.json" {
 			// 	return nil
 			// }
 			c := getSystemInfo(system)
-			if c == nil {
-				return nil
-			}
-			mutex.Lock()
+
 			if c != nil {
+				mutex.Lock()
 				systemClients[system] = c
+				mutex.Unlock()
+			} else {
+				log.Println("can't load", system.AutoDiscoveryURL)
 			}
-			mutex.Unlock()
 			return nil
 		})
 	}
@@ -151,18 +117,83 @@ func Test(systems []System) map[System]gbfs.Client {
 	return systemClients
 }
 
-var tr = func() *http.Transport {
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	return tr
+var httpClient, StopRecorder = func() (http.Client, func() error) {
+	r, err := recorder.New("http-cache")
+	if err != nil {
+		log.Fatalf("recorder.New: %v", err)
+	}
+	r.SkipRequestLatency = true
+
+	r.Passthroughs = append(r.Passthroughs,
+		func(req *http.Request) bool {
+			return !strings.HasSuffix(req.URL.Path, "/system_information.json")
+		},
+	)
+
+	return http.Client{
+		Timeout:   10 * time.Second,
+		Transport: r,
+	}, r.Stop
 }()
 
+type AutoDiscovery struct {
+	Data struct {
+		En struct {
+			Feeds []struct {
+				Name string `json:"name"`
+				URL  string `json:"url"`
+			} `json:"feeds"`
+		} `json:"en"`
+	} `json:"data"`
+	LastUpdated int64 `json:"last_updated"`
+	TTL         int64 `json:"ttl"`
+}
+
+func tryAuto(system System) []gbfs.HTTPOption {
+
+	req, err := http.NewRequest(http.MethodGet, system.AutoDiscoveryURL, nil)
+	if err != nil {
+		log.Println("tryauto NewRequest", system.AutoDiscoveryURL, err)
+		return nil
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		log.Println("tryauto", system.AutoDiscoveryURL, err)
+		return nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Println("tryauto", system.AutoDiscoveryURL, resp.Status)
+		return nil
+
+	}
+	d := json.NewDecoder(resp.Body)
+	var a AutoDiscovery
+	err = d.Decode(&a)
+	if err != nil {
+		log.Println("tryauto json", system.AutoDiscoveryURL, err)
+		return nil
+
+	}
+	_ = a
+	fmt.Println("ok")
+	if len(a.Data.En.Feeds) > 0 {
+		var opts = []gbfs.HTTPOption{
+			gbfs.HTTPOptionBaseURL(system.SystemID),
+		}
+		for _, f := range a.Data.En.Feeds {
+			opts = append(opts, gbfs.HTTPOptionForceURL(f.Name, f.URL))
+		}
+		return opts
+	}
+
+	return nil
+}
+
 func getSystemInfo(system System) gbfs.Client {
+	autoOpts := tryAuto(system)
 
 	baseOpts := []gbfs.HTTPOption{
-		gbfs.HTTPOptionClient(http.Client{
-			Timeout:   10 * time.Second,
-			Transport: tr,
-		}),
+		gbfs.HTTPOptionClient(httpClient),
 		gbfs.HTTPOptionBaseURL(system.AutoDiscoveryURL),
 	}
 
@@ -170,6 +201,12 @@ func getSystemInfo(system System) gbfs.Client {
 		append([]gbfs.HTTPOption{}, baseOpts...),
 		append([]gbfs.HTTPOption{gbfs.HTTPOptionLanguage("en")}, baseOpts...),
 	}
+
+	if autoOpts != nil {
+		autoOpts = append(autoOpts, baseOpts...)
+		multiOpts = append(multiOpts, autoOpts)
+	}
+
 	if strings.HasSuffix(system.AutoDiscoveryURL, "gbfs.json") {
 
 		u, _ := url.Parse(system.AutoDiscoveryURL)
@@ -217,7 +254,6 @@ func getSystemInfoWithOpts(system System, opts ...gbfs.HTTPOption) gbfs.Client {
 	}
 
 	var si gbfsspec.FeedSystemInformation
-
 	if err := c.Get(gbfsspec.FeedKeySystemInformation, &si); err != nil {
 		fmt.Println(system.Name, "err", err, system.AutoDiscoveryURL)
 		return nil
