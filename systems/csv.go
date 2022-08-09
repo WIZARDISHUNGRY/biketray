@@ -205,6 +205,18 @@ func getSystemInfo(system System) gbfs.Client {
 	if autoOpts != nil {
 		autoOpts = append(autoOpts, baseOpts...)
 		multiOpts = append(multiOpts, autoOpts)
+		goto GO
+	}
+	if strings.HasPrefix(system.AutoDiscoveryURL, "http://") {
+		newSystem := system
+		u, err := url.Parse(system.AutoDiscoveryURL)
+		if err != nil {
+			log.Println("url replace", err)
+			return nil
+		}
+		u.Scheme = "https"
+		newSystem.AutoDiscoveryURL = u.String()
+		return getSystemInfo(newSystem)
 	}
 
 	if strings.HasSuffix(system.AutoDiscoveryURL, "gbfs.json") {
@@ -221,6 +233,7 @@ func getSystemInfo(system System) gbfs.Client {
 		}
 		multiOpts = newMultiOpts
 	}
+GO:
 
 	var mutex sync.Mutex
 	var client gbfs.Client
