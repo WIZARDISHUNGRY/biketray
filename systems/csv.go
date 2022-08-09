@@ -88,7 +88,7 @@ func Test(systems []System) map[System]gbfs.Client {
 		mutex         sync.Mutex
 		systemClients map[System]gbfs.Client = make(map[System]gbfs.Client)
 	)
-	g.SetLimit(len(systems)/4 + 16)
+	g.SetLimit(16)
 	for _, system := range systems {
 		system := system
 		g.Go(func() error {
