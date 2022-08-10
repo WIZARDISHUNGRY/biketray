@@ -132,7 +132,6 @@ func onReady(ctx context.Context) {
 		dur := time.Since(start)
 		log.Println("boot duration", len(clients), dur)
 		systems.StopRecorder()
-		panic("done")
 		select {
 		case <-ctx.Done():
 			return
