@@ -11,6 +11,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Eraac/gbfs"
@@ -124,16 +125,21 @@ var httpClient, StopRecorder = func() (http.Client, func() error) {
 	}
 	r.SkipRequestLatency = true
 
+	var pass atomic.Uint32
+
 	r.Passthroughs = append(r.Passthroughs,
 		func(req *http.Request) bool {
-			return !strings.HasSuffix(req.URL.Path, "/system_information.json")
+			return pass.Load() != 0
 		},
 	)
 
 	return http.Client{
-		Timeout:   10 * time.Second,
-		Transport: r,
-	}, r.Stop
+			Timeout:   10 * time.Second,
+			Transport: r,
+		}, func() error {
+			pass.Store(1)
+			return r.Stop()
+		}
 }()
 
 type AutoDiscovery struct {
@@ -175,7 +181,6 @@ func tryAuto(system System) []gbfs.HTTPOption {
 
 	}
 	_ = a
-	fmt.Println("ok")
 	if len(a.Data.En.Feeds) > 0 {
 		var opts = []gbfs.HTTPOption{
 			gbfs.HTTPOptionBaseURL(system.SystemID),

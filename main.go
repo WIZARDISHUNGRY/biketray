@@ -84,33 +84,47 @@ func onReady(ctx context.Context) {
 				}
 			}()
 		}
+
 	}
 
 	geoMgr := geo.NewManager(ctx, locChan)
 
 	start := time.Now()
 	csvSystems := systems.Load() // slow!
-	topMenus := make(map[systems.System]*systray.MenuItem)
-	subMenus := make(map[systems.System][]*systray.MenuItem)
-	for _, system := range csvSystems {
-		name := fmt.Sprintf("%s (%s)", system.Name, system.Location)
-		fmt.Println(name)
-		mi := systray.AddMenuItem(name, system.SystemID)
-		mi.Hide()
-		topMenus[system] = mi
+
+	menusForSystem := make(map[systems.System]*systray.MenuItem)
+	subMenus := make(map[*systray.MenuItem][]*systray.MenuItem)
+
+	const maxSystems = 20
+
+	pool := make(map[*systray.MenuItem]struct{}, maxSystems)
+	get := func() *systray.MenuItem {
+		for mi, _ := range pool {
+			return mi
+		}
+		panic("no more top level menus")
+	}
+	put := func(mi *systray.MenuItem) {
+		pool[mi] = struct{}{}
 	}
 
-	mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
-	mQuit.SetIcon(icon.Data)
+	for i := 0; i < maxSystems; i++ {
+		mi := systray.AddMenuItem("uninitialized system", "")
+		mi.Hide()
+		put(mi)
+	}
 
 	initSubMenus := func(mi *systray.MenuItem, system systems.System) {
 		for i := 0; i < 10; i++ {
 			sub := mi.AddSubMenuItem("", "")
 			sub.Hide()
 			sub.SetIcon(icon.Data)
-			subMenus[system] = append(subMenus[system], sub)
+			subMenus[mi] = append(subMenus[mi], sub)
 		}
 	}
+
+	mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
+	mQuit.SetIcon(icon.Data)
 
 	clientsC := make(chan map[systems.System]gbfs.Client, 1)
 	go func() {
@@ -147,28 +161,39 @@ func onReady(ctx context.Context) {
 		select {
 		case <-mQuit.ClickedCh: // TODO all click handlers should be in a tight loop because there is a default
 			systray.Quit()
-		case nr := <-bsMgr.NearbyResults():
-			log.Println("visible systems update", len(nr))
-			for system, mi := range topMenus {
-
-				if _, ok := nr[system]; ok {
-					fmt.Println("show", system.Name)
-					mi.Show()
-				} else {
-					mi.Hide()
+		case nrs := <-bsMgr.NearbyResults():
+			log.Println("visible systems update", len(nrs))
+			for system, mi := range menusForSystem {
+				if nr, ok := nrs[system]; ok {
+					mCiti, ok := menusForSystem[nr.System]
+					if !ok {
+						log.Println("get")
+						mCiti = get()
+						menusForSystem[nr.System] = mCiti
+					}
+					name := fmt.Sprintf("%s (%s)", nr.System.Name, nr.System.Location)
+					mCiti.SetTitle(name)
+					mCiti.Show()
+					continue
 				}
+				delete(menusForSystem, system)
+				mi.Hide()
+				put(mi)
 			}
 		case cr := <-bsMgr.ClientResults():
-			mCiti, ok := topMenus[cr.System]
+			mCiti, ok := menusForSystem[cr.System]
 			if !ok {
-				log.Println("mCiti, ok := topMenus[cr.System]")
-				continue
+				log.Println("get")
+				mCiti = get()
+				menusForSystem[cr.System] = mCiti
 			}
+			name := fmt.Sprintf("%s (%s)", cr.System.Name, cr.System.Location)
+			mCiti.SetTitle(name)
 			mCiti.Show()
-			mStations, ok := subMenus[cr.System]
+			mStations, ok := subMenus[mCiti]
 			if !ok {
 				initSubMenus(mCiti, cr.System)
-				mStations, _ = subMenus[cr.System]
+				mStations, _ = subMenus[mCiti]
 			}
 
 			mCiti.SetTooltip(time.Now().Format(timeFmt))
