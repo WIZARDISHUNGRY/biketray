@@ -32,9 +32,47 @@ func onReady(ctx context.Context) {
 
 	flag.Parse()
 
-	systray.SetIcon(icon.Data)
+	// systray.SetIcon(icon.Data)
 	systray.SetTitle("BikeTray")
-	systray.SetTooltip("Pretty awesome超级棒")
+	statusMenu := systray.AddMenuItem("Loading...", "")
+	statusMenu.Disable()
+	statusMenu.SetIcon(icon.Data)
+
+	menusForSystem := make(map[systems.System]*systray.MenuItem)
+	subMenus := make(map[*systray.MenuItem][]*systray.MenuItem)
+
+	const maxSystems = 20
+
+	pool := make(map[*systray.MenuItem]struct{}, maxSystems)
+	get := func() *systray.MenuItem {
+		for mi, _ := range pool {
+			return mi
+		}
+		panic("no more top level menus")
+	}
+	put := func(mi *systray.MenuItem) {
+		pool[mi] = struct{}{}
+	}
+
+	for i := 0; i < maxSystems; i++ {
+		mi := systray.AddMenuItem("uninitialized system", "")
+		mi.Hide()
+		put(mi)
+	}
+
+	initSubMenus := func(mi *systray.MenuItem, system systems.System) {
+		for i := 0; i < 10; i++ {
+			sub := mi.AddSubMenuItem("", "")
+			sub.Hide()
+			subMenus[mi] = append(subMenus[mi], sub)
+		}
+	}
+	systray.AddSeparator()
+	mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
+	go func() {
+		<-mQuit.ClickedCh
+		systray.Quit()
+	}()
 
 	var (
 		locChan <-chan geo.LocationInfo
@@ -63,24 +101,31 @@ func onReady(ctx context.Context) {
 			}
 		}()
 		mi := systray.AddMenuItem("Teleport to", "")
+		var teleportItems []*systray.MenuItem
+		teleportLocs := []geo.LocationInfo{
+			{"Central Park", 40.785091, -73.968285},
+			{"Spanish Steps, Rome", 41.905991, 12.482775},
+			{"Corona Heights Park, SF", 37.765678, -122.438713},
+			{"Montreal", 45.508888, -73.561668},
+			{"Buckingham Palace", 51.501476, -0.140634},
+			{"Soldier Field, Chicago", 41.862366, -87.617256},
+			{Description: "omphalos"},
+		}
 
-		for city, geo := range map[string]geo.LocationInfo{
-			"Central Park":            {40.785091, -73.968285},
-			"Spanish Steps, Rome":     {41.905991, 12.482775},
-			"Corona Heights Park, SF": {37.765678, -122.438713},
-			"Montreal":                {45.508888, -73.561668},
-			"Buckingham Palace":       {51.501476, -0.140634},
-			"Soldier Field, Chicago":  {41.862366, -87.617256},
-			//
-			"omphalos": {},
-		} {
-			city, geo := city, geo
-			si := mi.AddSubMenuItem(city, "")
+		for _, geo := range teleportLocs {
+			geo := geo
+			si := mi.AddSubMenuItemCheckbox(geo.Description, "", *lat == geo.Lat && *lon == geo.Lon)
+			teleportItems = append(teleportItems, si)
 			go func() {
 				for {
 					<-si.ClickedCh
-					fmt.Println("teleport to ", city, geo)
+					fmt.Println("teleport to ", geo.Description, geo)
 					wakeFakeGeo <- geo
+					for _, ti := range teleportItems {
+						if ti != si {
+							ti.Uncheck()
+						}
+					}
 				}
 			}()
 		}
@@ -92,39 +137,7 @@ func onReady(ctx context.Context) {
 	start := time.Now()
 	csvSystems := systems.Load() // slow!
 
-	menusForSystem := make(map[systems.System]*systray.MenuItem)
-	subMenus := make(map[*systray.MenuItem][]*systray.MenuItem)
-
-	const maxSystems = 20
-
-	pool := make(map[*systray.MenuItem]struct{}, maxSystems)
-	get := func() *systray.MenuItem {
-		for mi, _ := range pool {
-			return mi
-		}
-		panic("no more top level menus")
-	}
-	put := func(mi *systray.MenuItem) {
-		pool[mi] = struct{}{}
-	}
-
-	for i := 0; i < maxSystems; i++ {
-		mi := systray.AddMenuItem("uninitialized system", "")
-		mi.Hide()
-		put(mi)
-	}
-
-	initSubMenus := func(mi *systray.MenuItem, system systems.System) {
-		for i := 0; i < 10; i++ {
-			sub := mi.AddSubMenuItem("", "")
-			sub.Hide()
-			sub.SetIcon(icon.Data)
-			subMenus[mi] = append(subMenus[mi], sub)
-		}
-	}
-
-	mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
-	mQuit.SetIcon(icon.Data)
+	statusMenu.SetTitle(fmt.Sprintf("Loading %d systems", len(csvSystems)))
 
 	clientsC := make(chan map[systems.System]gbfs.Client, 1)
 	go func() {
@@ -132,6 +145,7 @@ func onReady(ctx context.Context) {
 		dur := time.Since(start)
 		log.Println("boot duration", len(clients), dur)
 		systems.StopRecorder()
+		statusMenu.SetTitle(fmt.Sprintf("Loading %d active systems", len(clients)))
 		select {
 		case <-ctx.Done():
 			return
@@ -141,16 +155,6 @@ func onReady(ctx context.Context) {
 
 	systemsNearbyC := systems.Nearby(ctx, clientsC, geoMgr)
 	bsMgr := bikeshare.NewManager(ctx, geoMgr, systemsNearbyC)
-	// Sets the icon of a menu item. Only available on Mac and Windows.
-
-	// mCiti := systray.AddMenuItem("CitiBike", "")
-	// mStations := make([]*systray.MenuItem, 0)
-	// for i := 0; i < 10; i++ {
-	// 	mi := mCiti.AddSubMenuItem("", "")
-	// 	mi.Hide()
-	// 	mi.SetIcon(icon.Data)
-	// 	mStations = append(mStations, mi)
-	// }
 
 	type activeSystem struct {
 		NearbyResult systems.NearbyResult
@@ -159,9 +163,8 @@ func onReady(ctx context.Context) {
 
 	for {
 		select {
-		case <-mQuit.ClickedCh: // TODO all click handlers should be in a tight loop because there is a default
-			systray.Quit()
 		case nrs := <-bsMgr.NearbyResults():
+			statusMenu.SetTitle(fmt.Sprintf("Loading %d nearby systems", len(nrs)))
 			log.Println("visible systems update", len(nrs))
 			for system, mi := range menusForSystem {
 				if nr, ok := nrs[system]; ok {
@@ -181,6 +184,7 @@ func onReady(ctx context.Context) {
 				put(mi)
 			}
 		case cr := <-bsMgr.ClientResults():
+			statusMenu.Hide()
 			mCiti, ok := menusForSystem[cr.System]
 			if !ok {
 				log.Println("get")
@@ -202,6 +206,7 @@ func onReady(ctx context.Context) {
 					mi.Hide()
 					continue
 				}
+				mi.Check()
 				mi.Show()
 				mi.SetTitle(cr.Data[i])
 			}

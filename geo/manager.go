@@ -31,7 +31,7 @@ func (m *Manager) run(ctx context.Context) {
 			return
 		case loc := <-m.c:
 			m.mutex.Lock()
-			fmt.Println("geo mgr")
+			fmt.Println("geo mgr", loc)
 			m.lastLoc = loc
 			m.hasLoc = true
 			for _, c := range m.dests {

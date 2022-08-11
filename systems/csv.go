@@ -277,9 +277,10 @@ type NearbyResult struct {
 	Client gbfs.Client
 }
 
+var geo1 = ellipsoid.Init("WGS84", ellipsoid.Degrees, ellipsoid.Meter, ellipsoid.LongitudeIsSymmetric, ellipsoid.BearingIsSymmetric)
+
 func Nearby(ctx context.Context, clientsC <-chan map[System]gbfs.Client, mgr *geo.Manager) <-chan map[System]NearbyResult {
 	c := make(chan map[System]NearbyResult, 1)
-	geo1 := ellipsoid.Init("WGS84", ellipsoid.Degrees, ellipsoid.Meter, ellipsoid.LongitudeIsSymmetric, ellipsoid.BearingIsSymmetric)
 
 	go func() {
 		locC := mgr.Subscribe()
@@ -315,7 +316,7 @@ func Nearby(ctx context.Context, clientsC <-chan map[System]gbfs.Client, mgr *ge
 					var si gbfsspec.FeedStationInformation
 
 					if err := client.Get(gbfsspec.FeedKeyStationInformation, &si); err != nil {
-						fmt.Println("station info", err)
+						fmt.Println("station info", system.Name, err)
 						return nil
 					}
 

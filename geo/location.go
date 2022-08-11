@@ -9,7 +9,8 @@ import (
 )
 
 type LocationInfo struct {
-	Lat, Lon float64
+	Description string
+	Lat, Lon    float64
 }
 
 func Location(ctx context.Context) (<-chan LocationInfo, error) {
@@ -82,5 +83,9 @@ func newLocationInfo(loc geoclue2.GeoclueLocation) LocationInfo {
 	if err != nil {
 		log.Println("GetLongitude", err)
 	}
-	return LocationInfo{Lat: lat, Lon: lon}
+	desc, err := loc.GetDescription()
+	if err != nil {
+		log.Println("GetDescription", err)
+	}
+	return LocationInfo{Lat: lat, Lon: lon, Description: desc}
 }

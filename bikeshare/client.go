@@ -38,12 +38,13 @@ func (c *Client) Close() {
 	c.cancel()
 }
 
+var geo1 = ellipsoid.Init("WGS84", ellipsoid.Degrees, ellipsoid.Meter, ellipsoid.LongitudeIsSymmetric, ellipsoid.BearingIsSymmetric)
+
 func (c *Client) run(ctx context.Context) {
 	locationC := c.mgr.geoMgr.Subscribe()
 	defer c.mgr.geoMgr.Unsubscribe(locationC)
 	log.Println("run")
 
-	geo1 := ellipsoid.Init("WGS84", ellipsoid.Degrees, ellipsoid.Meter, ellipsoid.LongitudeIsSymmetric, ellipsoid.BearingIsSymmetric)
 	sparklines := make(map[string][]float64)
 
 	location := <-locationC
