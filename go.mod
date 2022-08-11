@@ -18,8 +18,10 @@ require (
 	github.com/godbus/dbus/v5 v5.0.3 // indirect
 	github.com/maltegrosse/go-geoclue2 v0.1.1 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
+	github.com/petoc/gbfs v0.0.0-20210401160330-9dbb7fd5eba7 // indirect
 	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e // indirect
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4 // indirect
 	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+replace github.com/petoc/gbfs  v0.0.0-20210401160330-9dbb7fd5eba7 => github.com/WIZARDISHUNGRY/gbfs v0.0.0-20220811222503-395c981e93db
