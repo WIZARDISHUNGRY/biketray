@@ -38,42 +38,6 @@ func onReady(ctx context.Context) {
 	statusMenu.Disable()
 	statusMenu.SetIcon(icon.Data)
 
-	menusForSystem := make(map[systems.System]*systray.MenuItem)
-	subMenus := make(map[*systray.MenuItem][]*systray.MenuItem)
-
-	const maxSystems = 20
-
-	pool := make(map[*systray.MenuItem]struct{}, maxSystems)
-	get := func() *systray.MenuItem {
-		for mi, _ := range pool {
-			return mi
-		}
-		panic("no more top level menus")
-	}
-	put := func(mi *systray.MenuItem) {
-		pool[mi] = struct{}{}
-	}
-
-	for i := 0; i < maxSystems; i++ {
-		mi := systray.AddMenuItem("uninitialized system", "")
-		mi.Hide()
-		put(mi)
-	}
-
-	initSubMenus := func(mi *systray.MenuItem, system systems.System) {
-		for i := 0; i < 10; i++ {
-			sub := mi.AddSubMenuItem("", "")
-			sub.Hide()
-			subMenus[mi] = append(subMenus[mi], sub)
-		}
-	}
-	systray.AddSeparator()
-	mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
-	go func() {
-		<-mQuit.ClickedCh
-		systray.Quit()
-	}()
-
 	var (
 		locChan <-chan geo.LocationInfo
 		err     error
@@ -129,8 +93,45 @@ func onReady(ctx context.Context) {
 				}
 			}()
 		}
-
+		systray.AddSeparator()
 	}
+
+	menusForSystem := make(map[systems.System]*systray.MenuItem)
+	subMenus := make(map[*systray.MenuItem][]*systray.MenuItem)
+
+	const maxSystems = 20
+
+	pool := make(map[*systray.MenuItem]struct{}, maxSystems)
+	get := func() *systray.MenuItem {
+		for mi, _ := range pool {
+			return mi
+		}
+		panic("no more top level menus")
+	}
+	put := func(mi *systray.MenuItem) {
+		pool[mi] = struct{}{}
+	}
+
+	for i := 0; i < maxSystems; i++ {
+		mi := systray.AddMenuItem("uninitialized system", "")
+		mi.Hide()
+		put(mi)
+	}
+
+	initSubMenus := func(mi *systray.MenuItem, system systems.System) {
+		for i := 0; i < 10; i++ {
+			sub := mi.AddSubMenuItem("", "")
+			sub.Hide()
+			subMenus[mi] = append(subMenus[mi], sub)
+		}
+	}
+
+	systray.AddSeparator()
+	mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
+	go func() {
+		<-mQuit.ClickedCh
+		systray.Quit()
+	}()
 
 	geoMgr := geo.NewManager(ctx, locChan)
 
