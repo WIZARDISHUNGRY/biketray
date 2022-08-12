@@ -8,9 +8,9 @@ import (
 	"math"
 	"time"
 
-	"github.com/Eraac/gbfs"
 	"github.com/getlantern/systray"
 	"github.com/getlantern/systray/example/icon"
+	petoc "github.com/petoc/gbfs"
 	"jonwillia.ms/biketray/bikeshare"
 	"jonwillia.ms/biketray/geo"
 	"jonwillia.ms/biketray/systems"
@@ -140,7 +140,7 @@ func onReady(ctx context.Context) {
 
 	statusMenu.SetTitle(fmt.Sprintf("Loading %d systems", len(csvSystems)))
 
-	clientsC := make(chan map[systems.System]gbfs.Client, 1)
+	clientsC := make(chan map[systems.System]*petoc.Client, 1)
 	go func() {
 		clients := systems.Test(csvSystems) // slow!
 		dur := time.Since(start)

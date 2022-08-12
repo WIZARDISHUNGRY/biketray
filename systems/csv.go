@@ -3,27 +3,25 @@ package systems
 import (
 	"context"
 	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
-	"path"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/Eraac/gbfs"
-	gbfsspec "github.com/Eraac/gbfs/spec/v2.0"
 	"github.com/StefanSchroeder/Golang-Ellipsoid/ellipsoid"
 	"github.com/dnaeon/go-vcr/v2/recorder"
+	petoc "github.com/petoc/gbfs"
 	"golang.org/x/sync/errgroup"
 	"jonwillia.ms/biketray/geo"
 )
 
 const CSV = "https://raw.githubusercontent.com/NABSA/gbfs/master/systems.csv"
 const systemDist = 60000 // meters
+var httpUA string = func() string {
+	return "biktray"
+}()
 
 type System struct {
 	CountryCode      string
@@ -78,7 +76,7 @@ func Load() []System {
 	return systems
 }
 
-func Test(systems []System) map[System]gbfs.Client {
+func Test(systems []System) map[System]*petoc.Client {
 
 	// system := systems["bird-new-york"]
 
@@ -87,7 +85,7 @@ func Test(systems []System) map[System]gbfs.Client {
 
 	var (
 		mutex         sync.Mutex
-		systemClients map[System]gbfs.Client = make(map[System]gbfs.Client)
+		systemClients = make(map[System]*petoc.Client)
 	)
 	g.SetLimit(16)
 	for _, system := range systems {
@@ -96,11 +94,22 @@ func Test(systems []System) map[System]gbfs.Client {
 			// if system.AutoDiscoveryURL != "https://data.lime.bike/api/partners/v2/gbfs/new_york/gbfs.json" {
 			// 	return nil
 			// }
-			c := getSystemInfo(system)
+			pc, err := petoc.NewClient(petoc.ClientOptions{
+				AutoDiscoveryURL: system.AutoDiscoveryURL,
+				UserAgent:        httpUA,
+				HTTPClient:       &httpClient,
+				DefaultLanguage:  "en",
+			})
+			if err != nil {
+				panic(err)
+			}
+			si := &petoc.FeedSystemInformation{}
+			err = pc.Get(si)
 
-			if c != nil {
+			if err == nil {
+
 				mutex.Lock()
-				systemClients[system] = c
+				systemClients[system] = pc
 				mutex.Unlock()
 			} else {
 				log.Println("can't load", system.AutoDiscoveryURL)
@@ -155,131 +164,15 @@ type AutoDiscovery struct {
 	TTL         int64 `json:"ttl"`
 }
 
-func tryAuto(system System) []gbfs.HTTPOption {
-
-	req, err := http.NewRequest(http.MethodGet, system.AutoDiscoveryURL, nil)
-	if err != nil {
-		log.Println("tryauto NewRequest", system.AutoDiscoveryURL, err)
-		return nil
-	}
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		log.Println("tryauto", system.AutoDiscoveryURL, err)
-		return nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		log.Println("tryauto", system.AutoDiscoveryURL, resp.Status)
-		return nil
-
-	}
-	d := json.NewDecoder(resp.Body)
-	var a AutoDiscovery
-	err = d.Decode(&a)
-	if err != nil {
-		log.Println("tryauto json", system.AutoDiscoveryURL, err)
-		return nil
-
-	}
-	_ = a
-	if len(a.Data.En.Feeds) > 0 {
-		var opts = []gbfs.HTTPOption{
-			gbfs.HTTPOptionBaseURL(system.SystemID),
-		}
-		for _, f := range a.Data.En.Feeds {
-			opts = append(opts, gbfs.HTTPOptionForceURL(f.Name, f.URL))
-		}
-		return opts
-	}
-
-	return nil
-}
-
-func getSystemInfo(system System) gbfs.Client {
-	autoOpts := tryAuto(system)
-
-	baseOpts := []gbfs.HTTPOption{
-		gbfs.HTTPOptionClient(httpClient),
-		gbfs.HTTPOptionBaseURL(system.AutoDiscoveryURL),
-	}
-
-	multiOpts := [][]gbfs.HTTPOption{
-		append([]gbfs.HTTPOption{}, baseOpts...),
-		append([]gbfs.HTTPOption{gbfs.HTTPOptionLanguage("en")}, baseOpts...),
-	}
-
-	if autoOpts != nil {
-		autoOpts = append(autoOpts, baseOpts...)
-		multiOpts = append(multiOpts, autoOpts)
-		goto GO
-	}
-
-	if strings.HasPrefix(system.AutoDiscoveryURL, "http://") {
-		newSystem := system
-		u, err := url.Parse(system.AutoDiscoveryURL)
-		if err != nil {
-			log.Println("url replace", err)
-			return nil
-		}
-		u.Scheme = "https"
-		newSystem.AutoDiscoveryURL = u.String()
-		c := getSystemInfo(newSystem)
-		if c != nil {
-			return c
-		}
-	}
-
-	if strings.HasSuffix(system.AutoDiscoveryURL, "gbfs.json") {
-		u, _ := url.Parse(system.AutoDiscoveryURL)
-		u.Path = path.Dir(u.Path)
-		newURL := u.String()
-		var newMultiOpts [][]gbfs.HTTPOption
-		for _, opts := range multiOpts {
-			newMultiOpts = append(newMultiOpts, opts)
-			var newOpts = append([]gbfs.HTTPOption{}, opts...)
-			newOpts = append(newOpts, gbfs.HTTPOptionBaseURL(newURL))
-			newMultiOpts = append(newMultiOpts, newOpts)
-		}
-		multiOpts = newMultiOpts
-	}
-GO:
-
-	for _, opts := range multiOpts {
-		opts := opts
-		c := getSystemInfoWithOpts(system, opts...)
-		if c != nil {
-			return c
-		}
-	}
-	return nil
-}
-
-func getSystemInfoWithOpts(system System, opts ...gbfs.HTTPOption) gbfs.Client {
-
-	c, err := gbfs.NewHTTPClient(opts...)
-	if err != nil {
-		panic(err)
-	}
-
-	var si gbfsspec.FeedSystemInformation
-	if err := c.Get(gbfsspec.FeedKeySystemInformation, &si); err != nil {
-		fmt.Println(system.Name, "err", err, system.AutoDiscoveryURL)
-		return nil
-	}
-
-	fmt.Println(si.Data.Name)
-	return c
-}
-
 type NearbyResult struct {
 	System                 System
-	FeedStationInformation gbfsspec.FeedStationInformation
-	// StationInformation     gbfsspec.StationInformation
-	Client gbfs.Client
+	FeedStationInformation petoc.FeedStationInformation
+	Client                 *petoc.Client
 }
 
 var geo1 = ellipsoid.Init("WGS84", ellipsoid.Degrees, ellipsoid.Meter, ellipsoid.LongitudeIsSymmetric, ellipsoid.BearingIsSymmetric)
 
-func Nearby(ctx context.Context, clientsC <-chan map[System]gbfs.Client, mgr *geo.Manager) <-chan map[System]NearbyResult {
+func Nearby(ctx context.Context, clientsC <-chan map[System]*petoc.Client, mgr *geo.Manager) <-chan map[System]NearbyResult {
 	c := make(chan map[System]NearbyResult, 1)
 
 	go func() {
@@ -293,7 +186,7 @@ func Nearby(ctx context.Context, clientsC <-chan map[System]gbfs.Client, mgr *ge
 		case <-ctx.Done():
 			return
 		}
-		var clients map[System]gbfs.Client
+		var clients map[System]*petoc.Client
 	MAIN_LOOP:
 		for {
 			select {
@@ -313,10 +206,9 @@ func Nearby(ctx context.Context, clientsC <-chan map[System]gbfs.Client, mgr *ge
 			for system, client := range clients {
 				system, client := system, client
 				g.Go(func() error {
-					var si gbfsspec.FeedStationInformation
-
-					if err := client.Get(gbfsspec.FeedKeyStationInformation, &si); err != nil {
-						fmt.Println("station info", system.Name, err)
+					var si petoc.FeedStationInformation
+					if err := client.Get(&si); err != nil {
+						fmt.Println("station info", system.Name, system.AutoDiscoveryURL, err)
 						return nil
 					}
 
@@ -339,8 +231,8 @@ func Nearby(ctx context.Context, clientsC <-chan map[System]gbfs.Client, mgr *ge
 
 			for ctx.Err() == nil {
 
-				dist := func(s gbfsspec.StationInformation) float64 {
-					distance, _ := geo1.To(location.Lat, location.Lon, s.Latitude, s.Longitude)
+				dist := func(s *petoc.FeedStationInformationStation) float64 {
+					distance, _ := geo1.To(location.Lat, location.Lon, s.Lat.Float64, s.Lon.Float64)
 					return distance
 				}
 
@@ -348,10 +240,21 @@ func Nearby(ctx context.Context, clientsC <-chan map[System]gbfs.Client, mgr *ge
 
 			NEXT_SYSTEM:
 				for k, v := range initResults {
+					if v.FeedStationInformation.Data == nil {
+						log.Println("Stationless system", v.System.AutoDiscoveryURL)
+						continue NEXT_SYSTEM // Stationless system
+						panic(v.System.AutoDiscoveryURL + " v.FeedStationInformation.Data")
+					}
+				NEXT_STATION:
 					for _, station := range v.FeedStationInformation.Data.Stations {
+						if station.Lat == nil || station.Lon == nil {
+							// log.Println("Placeless station", *station.Name)
+							continue NEXT_STATION
+						}
+
 						d := dist(station)
 						if d < systemDist {
-							fmt.Println("station in range", v.System.Name, station.Name, d)
+							fmt.Println("station in range", v.System.Name, *station.Name, d)
 							results[k] = v
 							continue NEXT_SYSTEM
 						}

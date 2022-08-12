@@ -1,0 +1,1 @@
+- https://gbfs.bici.madrid/en/station_information - capacity is a quoted string

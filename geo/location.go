@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/maltegrosse/go-geoclue2"
 )
@@ -48,10 +49,16 @@ func Location(ctx context.Context) (<-chan LocationInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("client.Start: %w", err)
 	}
-	location, err := client.GetLocation()
+LOC_AGAIN:
+	var location geoclue2.GeoclueLocation
+	location, err = client.GetLocation()
 	if err != nil {
+		log.Println("GetLocation", err)
+		time.Sleep(100 * time.Millisecond)
+		goto LOC_AGAIN
 		return nil, fmt.Errorf("client.GetLocation: %w", err) // TODO might this fail
 	}
+
 	updates := client.SubscribeLocationUpdated()
 	go func() {
 		for {
