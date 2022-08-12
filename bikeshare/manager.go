@@ -41,6 +41,7 @@ func (m *Manager) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case incoming := <-m.nearbySystemsC:
+			// This needs a restart if it gets an existing system that suddently adds stations or bikes as a top level feature
 			m.nearbySystemsMirror <- incoming
 			for k, nearbySystem := range incoming {
 				client, ok := m.nearbySystems[k]

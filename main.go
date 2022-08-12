@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/getlantern/systray"
 	"github.com/getlantern/systray/example/icon"
-	petoc "github.com/petoc/gbfs"
+	"github.com/petoc/gbfs"
 	"jonwillia.ms/biketray/bikeshare"
 	"jonwillia.ms/biketray/geo"
 	"jonwillia.ms/biketray/systems"
@@ -27,12 +30,16 @@ const timeFmt = time.RFC822
 
 func onReady(ctx context.Context) {
 
+	sigusr1 := make(chan os.Signal, 1)
+	signal.Notify(sigusr1, syscall.SIGUSR1)
+	defer signal.Stop(sigusr1)
+
 	lat := flag.Float64("lat", math.NaN(), "lat")
 	lon := flag.Float64("lon", math.NaN(), "lat")
 
 	flag.Parse()
 
-	// systray.SetIcon(icon.Data)
+	systray.SetIcon(icon.Data)
 	systray.SetTitle("BikeTray")
 	statusMenu := systray.AddMenuItem("Loading...", "")
 	statusMenu.Disable()
@@ -49,6 +56,7 @@ func onReady(ctx context.Context) {
 			log.Fatalf("geo.Location: %v", err)
 		}
 	} else {
+		// TODO allow reenabling real geo
 		c := make(chan geo.LocationInfo, 1)
 		locChan = c
 		wakeFakeGeo := make(chan geo.LocationInfo)
@@ -65,6 +73,14 @@ func onReady(ctx context.Context) {
 			}
 		}()
 		mi := systray.AddMenuItem("Teleport to", "")
+		go func() {
+			for {
+				for range sigusr1 {
+					mi.Show()
+				}
+			}
+		}()
+
 		var teleportItems []*systray.MenuItem
 		teleportLocs := []geo.LocationInfo{
 			{"Central Park", 40.785091, -73.968285},
@@ -73,7 +89,7 @@ func onReady(ctx context.Context) {
 			{"Montreal", 45.508888, -73.561668},
 			{"Buckingham Palace", 51.501476, -0.140634},
 			{"Soldier Field, Chicago", 41.862366, -87.617256},
-			{Description: "omphalos"},
+			{Description: "Omphalos"},
 		}
 
 		for _, geo := range teleportLocs {
@@ -140,7 +156,7 @@ func onReady(ctx context.Context) {
 
 	statusMenu.SetTitle(fmt.Sprintf("Loading %d systems", len(csvSystems)))
 
-	clientsC := make(chan map[systems.System]*petoc.Client, 1)
+	clientsC := make(chan map[systems.System]*gbfs.Client, 1)
 	go func() {
 		clients := systems.Test(csvSystems) // slow!
 		dur := time.Since(start)

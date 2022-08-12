@@ -9,9 +9,9 @@ import (
 	"time"
 
 	spark "bitbucket.org/dtolpin/gosparkline"
-	"github.com/StefanSchroeder/Golang-Ellipsoid/ellipsoid"
-	petoc "github.com/petoc/gbfs"
+	"github.com/petoc/gbfs"
 	"golang.org/x/exp/slices"
+	"jonwillia.ms/biketray/gbfsutil"
 	"jonwillia.ms/biketray/systems"
 )
 
@@ -39,106 +39,154 @@ func (c *Client) Close() {
 	c.cancel()
 }
 
-var geo1 = ellipsoid.Init("WGS84", ellipsoid.Degrees, ellipsoid.Meter, ellipsoid.LongitudeIsSymmetric, ellipsoid.BearingIsSymmetric)
-
 func (c *Client) run(ctx context.Context) {
 	locationC := c.mgr.geoMgr.Subscribe()
 	defer c.mgr.geoMgr.Unsubscribe(locationC)
 	log.Println("run")
 
-	sparklines := make(map[petoc.ID][]float64)
+	sparklines := make(map[gbfs.ID][]float64)
+
+	hasStations := c.nearbyResult.FeedStationInformation != nil
+	hasBikes := c.nearbyResult.FeedFreeBikeStatus != nil
 
 	location := <-locationC
+	const limitNearbyStation = 20
+	const limitNearbyBike = 100
+
+LOOP:
 	for ctx.Err() == nil {
 
 		if ctx.Err() != nil {
 			return
 		}
 
-		var ss petoc.FeedStationStatus
-		if err := c.nearbyResult.Client.Get(&ss); err != nil {
-			log.Println("FeedStationStatus", err)
-			continue
-		}
-		stationMap := make(map[petoc.ID]*petoc.FeedStationStatusStation, len(ss.Data.Stations))
-		for _, st := range ss.Data.Stations {
-			stationMap[*st.StationID] = st
-			frac := float64(*st.NumBikesAvailable)
-			sparklines[*st.StationID] = append([]float64{frac}, sparklines[*st.StationID]...)
-			if len(sparklines[*st.StationID]) > sparklineLen {
-				sparklines[*st.StationID] = sparklines[*st.StationID][:sparklineLen]
+		var ss gbfs.FeedStationStatus
+		var stationMap map[gbfs.ID]*gbfs.FeedStationStatusStation
+		var wantedLen int
+
+		if hasStations {
+			if err := c.nearbyResult.Client.Get(&ss); err != nil {
+				log.Println("FeedStationStatus", err)
+				continue LOOP
 			}
+			stationMap = make(map[gbfs.ID]*gbfs.FeedStationStatusStation, len(ss.Data.Stations))
+			for _, st := range ss.Data.Stations {
+				stationMap[*st.StationID] = st
+				frac := float64(*st.NumBikesAvailable)
+				sparklines[*st.StationID] = append([]float64{frac}, sparklines[*st.StationID]...)
+				if len(sparklines[*st.StationID]) > sparklineLen {
+					sparklines[*st.StationID] = sparklines[*st.StationID][:sparklineLen]
+				}
+			}
+			wantedLen += len(c.nearbyResult.FeedStationInformation.Data.Stations)
 		}
+		var fbs gbfs.FeedFreeBikeStatus
+		if hasBikes {
+			if err := c.nearbyResult.Client.Get(&fbs); err != nil {
+				log.Println("FeedFreeBikeStatus", err)
+				continue LOOP
+			}
+			wantedLen += len(fbs.Data.Bikes)
+		}
+
 		nextUpdate := time.Now().Add(pollInterval)
 
 	NEXT_LOC:
-		dist := func(s *petoc.FeedStationInformationStation) float64 {
-			lat, lon := location.Lat, location.Lon
-			if s.Lat == nil || s.Lon == nil {
-				return math.Inf(1)
-			}
-			distance, _ := geo1.To(lat, lon, s.Lat.Float64, s.Lon.Float64)
-			return distance
+		dist := func(lat, lon *gbfs.Coordinate) float64 {
+			d, _ := gbfsutil.Distance(location, lat, lon)
+			return d
 		}
-		slices.SortFunc(c.nearbyResult.FeedStationInformation.Data.Stations, func(a, b *petoc.FeedStationInformationStation) bool {
-			return dist(a) < dist(b)
-		})
 
-		var output []string = make([]string, 0, len(c.nearbyResult.FeedStationInformation.Data.Stations))
+		type outputTemp struct {
+			distance float64
+			line     string
+		}
 
-		for _, s := range c.nearbyResult.FeedStationInformation.Data.Stations {
-			lat, lon := location.Lat, location.Lon
-			var distance, bearing float64
-			if s.Lat == nil || s.Lon == nil {
-				distance, bearing = math.Inf(1), 0
-			} else {
-				distance, bearing = geo1.To(lat, lon, s.Lat.Float64, s.Lon.Float64)
-			}
+		var output = make([]outputTemp, 0, wantedLen)
 
-			statusStr := "?????"
-			st, ok := stationMap[*s.StationID]
-			if ok && st.NumBikesAvailable != nil && s.Capacity != nil {
+		if hasStations {
+			slices.SortFunc(c.nearbyResult.FeedStationInformation.Data.Stations, func(a, b *gbfs.FeedStationInformationStation) bool {
+				return dist(a.Lat, a.Lon) < dist(b.Lat, b.Lon)
+			})
 
-				supStrs := []string{}
-				for _, bike := range []struct {
-					Label     string
-					Available *int64
-				}{
-					// {"🚲", st.NumBikesAvailable},
-					{"🛵", st.NumScootersAvailable},
-					{"⚡", st.NumEBikesAvailable},
-				} {
-					if bike.Available == nil {
-						continue
+			for _, s := range constrain(c.nearbyResult.FeedStationInformation.Data.Stations, limitNearbyStation) {
+				distance, bearing := gbfsutil.Distance(location, s.Lat, s.Lon)
+
+				statusStr := "?????"
+				st, ok := stationMap[*s.StationID]
+				if ok && st.NumBikesAvailable != nil && s.Capacity != nil {
+
+					supStrs := []string{}
+					for _, bike := range []struct {
+						Label     string
+						Available *int64
+					}{
+						// {"🚲", st.NumBikesAvailable},
+						{"🛵", st.NumScootersAvailable},
+						{"⚡", st.NumEBikesAvailable},
+					} {
+						if bike.Available == nil {
+							continue
+						}
+
+						supStrs = append(supStrs, fmt.Sprintf("%d%s", *bike.Available, bike.Label))
+					}
+					var supStr string
+					if len(supStrs) > 0 {
+						supStr = fmt.Sprintf(" (%s)", strings.Join(supStrs, " "))
 					}
 
-					supStrs = append(supStrs, fmt.Sprintf("%2.1d%s", *bike.Available, bike.Label))
-				}
-				var supStr string
-				if len(supStrs) > 0 {
-					supStr = fmt.Sprintf(" (%s)", strings.Join(supStrs, " "))
+					sl := string([]rune(spark.Line(append([]float64{0}, sparklines[*s.StationID]...)))[1:])
+					statusStr = fmt.Sprintf("%2.1d/%2.1d%s %s", *st.NumBikesAvailable, *s.Capacity, supStr, sl)
 				}
 
-				sl := string([]rune(spark.Line(append([]float64{0}, sparklines[*s.StationID]...)))[1:])
-				statusStr = fmt.Sprintf("%2.1d/%2.1d%s %s", *st.NumBikesAvailable, *s.Capacity, supStr, sl)
-			}
+				unit := "m"
+				if distance > 10000 {
+					unit = "km"
+					distance /= 1000
+				}
 
-			unit := "m"
-			if distance > 10000 {
-				unit = "km"
-				distance /= 1000
+				str := fmt.Sprintf("%s (%4.1f%s %2s)\n%s", *s.Name, distance, unit, direction(bearing), statusStr)
+				output = append(output, outputTemp{distance: distance, line: str})
 			}
+		}
 
-			str := fmt.Sprintf("%s (%4.1f%s %2s)\n%s", *s.Name, distance, unit, direction(bearing), statusStr)
-			output = append(output, str)
+		if hasBikes {
+			slices.SortFunc(fbs.Data.Bikes, func(a, b *gbfs.FeedFreeBikeStatusBike) bool {
+				return (dist(a.Lat, a.Lon) < dist(b.Lat, b.Lon)) &&
+					!(a.IsReserved != nil && bool(*a.IsReserved)) &&
+					!(a.IsDisabled != nil && bool(*a.IsDisabled))
+			})
+			for _, b := range constrain(fbs.Data.Bikes, limitNearbyBike) {
+				distance, bearing := gbfsutil.Distance(location, b.Lat, b.Lon)
+				unit := "m"
+				if distance > 10000 {
+					unit = "km"
+					distance /= 1000
+				}
+
+				name := "🚲"
+				if b.VehicleTypeID != nil {
+					name = string(*b.VehicleTypeID)
+				}
+
+				str := fmt.Sprintf("%s (%4.1f%s %2s)", name, distance, unit, direction(bearing))
+				output = append(output, outputTemp{distance: distance, line: str})
+			}
+		}
+
+		slices.SortFunc(output, func(a, b outputTemp) bool { return a.distance < b.distance })
+		lines := make([]string, 0, len(output))
+		for _, ot := range output {
+			lines = append(lines, ot.line)
 		}
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
-		log.Println("client out", len(c.nearbyResult.FeedStationInformation.Data.Stations))
-		c.mgr.clientResult(c.nearbyResult.System, output)
+		log.Println("client out", len(lines))
+		c.mgr.clientResult(c.nearbyResult.System, lines)
 
 		select {
 		case <-ctx.Done():
@@ -175,4 +223,11 @@ func direction(bearing float64) string {
 	}
 	idx := int(math.Round(bearing/float64(dirSize))) % len(dirs)
 	return dirs[idx]
+}
+
+func constrain[E any](x []E, limit int) []E {
+	if len(x) < limit {
+		limit = len(x)
+	}
+	return x[:limit]
 }
