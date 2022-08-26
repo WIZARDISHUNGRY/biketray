@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -53,8 +54,8 @@ func Load() []System {
 	if len(records) < 2 {
 		panic("len records wrong")
 	}
-	if len(records[0]) != 6 {
-		panic("num calls wrong")
+	if len(records[0]) != 7 { // they added one!
+		log.Fatalf("num columns wrong (%d): %+v", len(records[0]), strings.Join(records[0], " | "))
 	}
 
 	systems := make([]System, 0)

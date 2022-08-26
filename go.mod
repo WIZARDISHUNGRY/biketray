@@ -8,7 +8,7 @@ require (
 	github.com/dnaeon/go-vcr/v2 v2.0.1
 	github.com/getlantern/systray v1.2.1
 	github.com/maltegrosse/go-geoclue2 v0.1.1
-	github.com/petoc/gbfs v0.0.0-20210401160330-9dbb7fd5eba7
+	github.com/petoc/gbfs v0.0.0-20220812093314-768981f2d0aa
 	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
 )
@@ -27,4 +27,4 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
-replace github.com/petoc/gbfs v0.0.0-20210401160330-9dbb7fd5eba7 => github.com/WIZARDISHUNGRY/gbfs v0.0.0-20220811222503-395c981e93db
+replace github.com/petoc/gbfs v0.0.0-20220812093314-768981f2d0aa => github.com/WIZARDISHUNGRY/gbfs v0.0.0-20220811222503-395c981e93db

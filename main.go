@@ -43,73 +43,81 @@ func onReady(ctx context.Context) {
 	systray.SetTitle("BikeTray")
 	statusMenu := systray.AddMenuItem("Loading...", "")
 	statusMenu.Disable()
-	statusMenu.SetIcon(icon.Data)
 
 	var (
 		locChan <-chan geo.LocationInfo
 		err     error
 	)
 
+	var locationF geo.LocationFunc = geo.Location
+
 	if math.IsNaN(*lat) && math.IsNaN(*lon) {
-		locChan, err = geo.Location(ctx)
-		if err != nil {
-			log.Fatalf("geo.Location: %v", err)
-		}
+
 	} else {
-		// TODO allow reenabling real geo
-		c := make(chan geo.LocationInfo, 1)
-		locChan = c
-		wakeFakeGeo := make(chan geo.LocationInfo)
-		go func() {
-			g := geo.LocationInfo{Lat: *lat, Lon: *lon}
-			for {
-				fmt.Println("fake geo", g)
-				c <- g
-				select {
-				case <-time.After(time.Minute):
-				case g = <-wakeFakeGeo:
-					fmt.Println("wake fake geo")
-				}
-			}
-		}()
-		mi := systray.AddMenuItem("Teleport to", "")
-		go func() {
-			for {
-				for range sigusr1 {
-					mi.Show()
-				}
-			}
-		}()
+		locationF = func(ctx context.Context) (<-chan geo.LocationInfo, error) {
 
-		var teleportItems []*systray.MenuItem
-		teleportLocs := []geo.LocationInfo{
-			{"Central Park", 40.785091, -73.968285},
-			{"Spanish Steps, Rome", 41.905991, 12.482775},
-			{"Corona Heights Park, SF", 37.765678, -122.438713},
-			{"Montreal", 45.508888, -73.561668},
-			{"Buckingham Palace", 51.501476, -0.140634},
-			{"Soldier Field, Chicago", 41.862366, -87.617256},
-			{Description: "Omphalos"},
-		}
-
-		for _, geo := range teleportLocs {
-			geo := geo
-			si := mi.AddSubMenuItemCheckbox(geo.Description, "", *lat == geo.Lat && *lon == geo.Lon)
-			teleportItems = append(teleportItems, si)
+			// TODO allow reenabling real geo
+			c := make(chan geo.LocationInfo, 1)
+			wakeFakeGeo := make(chan geo.LocationInfo)
 			go func() {
+				g := geo.LocationInfo{Lat: *lat, Lon: *lon}
 				for {
-					<-si.ClickedCh
-					fmt.Println("teleport to ", geo.Description, geo)
-					wakeFakeGeo <- geo
-					for _, ti := range teleportItems {
-						if ti != si {
-							ti.Uncheck()
-						}
+					fmt.Println("fake geo", g)
+					c <- g
+					select {
+					case <-time.After(time.Minute):
+					case g = <-wakeFakeGeo:
+						fmt.Println("wake fake geo")
 					}
 				}
 			}()
+			mi := systray.AddMenuItem("Teleport to", "")
+			go func() {
+				for {
+					for range sigusr1 {
+						mi.Show()
+					}
+				}
+			}()
+
+			var teleportItems []*systray.MenuItem
+			teleportLocs := []geo.LocationInfo{
+				{"Central Park", 40.785091, -73.968285},
+				{"Spanish Steps, Rome", 41.905991, 12.482775},
+				{"Corona Heights Park, SF", 37.765678, -122.438713},
+				{"Montreal", 45.508888, -73.561668},
+				{"Buckingham Palace", 51.501476, -0.140634},
+				{"Soldier Field, Chicago", 41.862366, -87.617256},
+				{Description: "Omphalos"},
+			}
+
+			for _, geo := range teleportLocs {
+				geo := geo
+				si := mi.AddSubMenuItemCheckbox(geo.Description, "", *lat == geo.Lat && *lon == geo.Lon)
+				teleportItems = append(teleportItems, si)
+				go func() {
+					for {
+						<-si.ClickedCh
+						fmt.Println("teleport to ", geo.Description, geo)
+						wakeFakeGeo <- geo
+						for _, ti := range teleportItems {
+							if ti != si {
+								ti.Uncheck()
+							}
+						}
+					}
+				}()
+			}
+			systray.AddSeparator()
+			return c, nil
 		}
-		systray.AddSeparator()
+	}
+
+	locationF = geo.RateLimit(locationF, 5, 15*time.Second)
+
+	locChan, err = locationF(ctx)
+	if err != nil {
+		log.Fatalf("locationF: %v", err)
 	}
 
 	menusForSystem := make(map[systems.System]*systray.MenuItem)
@@ -202,6 +210,7 @@ func onReady(ctx context.Context) {
 			}
 		case cr := <-bsMgr.ClientResults():
 			statusMenu.Hide()
+			systray.SetTitle("")
 			mCiti, ok := menusForSystem[cr.System]
 			if !ok {
 				log.Println("get")
@@ -223,7 +232,7 @@ func onReady(ctx context.Context) {
 					mi.Hide()
 					continue
 				}
-				mi.Check()
+				//mi.Check()
 				mi.Show()
 				mi.SetTitle(cr.Data[i])
 			}

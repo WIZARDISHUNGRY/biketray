@@ -2,97 +2,54 @@ package geo
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"time"
-
-	"github.com/maltegrosse/go-geoclue2"
 )
 
 type LocationInfo struct {
 	Description string
 	Lat, Lon    float64
 }
+type LocationFunc func(ctx context.Context) (<-chan LocationInfo, error)
 
-func Location(ctx context.Context) (<-chan LocationInfo, error) {
+func RateLimit(f LocationFunc, thresholdMeters float64, minimumRate time.Duration) LocationFunc {
+	return func(ctx context.Context) (<-chan LocationInfo, error) {
+		c, err := f(ctx)
+		if err != nil {
+			return c, err
+		}
+		output := make(chan LocationInfo, 1)
 
-	output := make(chan LocationInfo, 1)
-
-	// create new Instance of Geoclue Manager
-	gcm, err := geoclue2.NewGeoclueManager()
-	if err != nil {
-		return nil, fmt.Errorf("geoclue2.NewGeoclueManager: %w", err)
-	}
-
-	// create new Instance of Geoclue Client
-	client, err := gcm.GetClient()
-	if err != nil {
-		return nil, fmt.Errorf("gcm.GetClient: %w", err)
-
-	}
-
-	// desktop id is required to start the client
-	// (double check your geoclue.conf file)
-	err = client.SetDesktopId("firefox")
-	if err != nil {
-		return nil, fmt.Errorf("client.SetDesktopId: %w", err)
-	}
-
-	// Set RequestedAccuracyLevel
-	err = client.SetRequestedAccuracyLevel(geoclue2.GClueAccuracyLevelExact)
-	if err != nil {
-		return nil, fmt.Errorf("client.SetRequestedAccuracyLevel: %w", err)
-	}
-
-	// client must be started before requesting the location
-	err = client.Start()
-	if err != nil {
-		return nil, fmt.Errorf("client.Start: %w", err)
-	}
-LOC_AGAIN:
-	var location geoclue2.GeoclueLocation
-	location, err = client.GetLocation()
-	if err != nil {
-		log.Println("GetLocation", err)
-		time.Sleep(100 * time.Millisecond)
-		goto LOC_AGAIN
-		return nil, fmt.Errorf("client.GetLocation: %w", err) // TODO might this fail
-	}
-
-	updates := client.SubscribeLocationUpdated()
-	go func() {
-		for {
-			output <- newLocationInfo(location)
-			select {
-			case <-ctx.Done():
-				return
-
-			case v, ok := <-updates:
-				if !ok {
-					return // TODO crash?
-				}
-				_, location, err = client.ParseLocationUpdated(v)
-				if err != nil {
-					log.Println("client.ParseLocationUpdated", err)
+		go func() {
+			defer close(output)
+			current := LocationInfo{
+				Lat: 90,
+				Lon: 0,
+			}
+			lastUpdate := time.Time{}
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case nextLoc, ok := <-c:
+				NEXT_LOC:
+					if !ok {
+						return
+					}
+					distanceFromLast, _ := distance(current.Lat, current.Lon, nextLoc.Lat, nextLoc.Lon)
+					if distanceFromLast > thresholdMeters || time.Now().Sub(lastUpdate) > minimumRate {
+						lastUpdate = time.Now()
+						current = nextLoc
+						select {
+						case output <- nextLoc:
+						case <-ctx.Done():
+							return
+						case nextLoc, ok = <-c:
+							goto NEXT_LOC
+						}
+					}
 				}
 			}
-		}
-	}()
-	return output, nil
-}
-
-func newLocationInfo(loc geoclue2.GeoclueLocation) LocationInfo {
-	lat, err := loc.GetLatitude()
-	if err != nil {
-		log.Println("GetLatitude", err)
+		}()
+		return output, nil
 	}
-	lon, err := loc.GetLongitude()
-	if err != nil {
-		log.Println("GetLongitude", err)
-	}
-	desc, err := loc.GetDescription()
-	if err != nil {
-		log.Println("GetDescription", err)
-	}
-	return LocationInfo{Lat: lat, Lon: lon, Description: desc}
 }

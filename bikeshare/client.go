@@ -11,7 +11,7 @@ import (
 	spark "bitbucket.org/dtolpin/gosparkline"
 	"github.com/petoc/gbfs"
 	"golang.org/x/exp/slices"
-	"jonwillia.ms/biketray/gbfsutil"
+	"jonwillia.ms/biketray/geo"
 	"jonwillia.ms/biketray/systems"
 )
 
@@ -46,8 +46,10 @@ func (c *Client) run(ctx context.Context) {
 
 	sparklines := make(map[gbfs.ID][]float64)
 
-	hasStations := c.nearbyResult.FeedStationInformation != nil
-	hasBikes := c.nearbyResult.FeedFreeBikeStatus != nil
+	hasStations := c.nearbyResult.FeedStationInformation != nil && c.nearbyResult.FeedStationInformation.Data != nil &&
+		len(c.nearbyResult.FeedStationInformation.Data.Stations) > 0
+	hasBikes := c.nearbyResult.FeedFreeBikeStatus != nil && c.nearbyResult.FeedFreeBikeStatus.Data != nil &&
+		len(c.nearbyResult.FeedFreeBikeStatus.Data.Bikes) > 0
 
 	location := <-locationC
 	const limitNearbyStation = 20
@@ -93,7 +95,7 @@ LOOP:
 
 	NEXT_LOC:
 		dist := func(lat, lon *gbfs.Coordinate) float64 {
-			d, _ := gbfsutil.Distance(location, lat, lon)
+			d, _ := geo.Distance(location, lat, lon)
 			return d
 		}
 
@@ -110,7 +112,7 @@ LOOP:
 			})
 
 			for _, s := range constrain(c.nearbyResult.FeedStationInformation.Data.Stations, limitNearbyStation) {
-				distance, bearing := gbfsutil.Distance(location, s.Lat, s.Lon)
+				distance, bearing := geo.Distance(location, s.Lat, s.Lon)
 
 				statusStr := "?????"
 				st, ok := stationMap[*s.StationID]
@@ -158,7 +160,7 @@ LOOP:
 					!(a.IsDisabled != nil && bool(*a.IsDisabled))
 			})
 			for _, b := range constrain(fbs.Data.Bikes, limitNearbyBike) {
-				distance, bearing := gbfsutil.Distance(location, b.Lat, b.Lon)
+				distance, bearing := geo.Distance(location, b.Lat, b.Lon)
 				unit := "m"
 				if distance > 10000 {
 					unit = "km"
