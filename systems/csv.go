@@ -251,7 +251,7 @@ func Nearby(ctx context.Context, clientsC <-chan map[System]*gbfs.Client, mgr *g
 			NEXT_SYSTEM:
 				for k, v := range initResults {
 					if v.FeedStationInformation.Data == nil {
-						log.Println("Stationless system", v.System.AutoDiscoveryURL)
+						// log.Println("Stationless system", v.System.AutoDiscoveryURL)
 						v.FeedStationInformation = nil
 						goto BIKES // Stationless system
 					}
@@ -271,14 +271,14 @@ func Nearby(ctx context.Context, clientsC <-chan map[System]*gbfs.Client, mgr *g
 					}
 				BIKES:
 					if v.FeedFreeBikeStatus.Data == nil {
-						log.Println("Bikeless system", v.System.AutoDiscoveryURL)
+						// log.Println("Bikeless system", v.System.AutoDiscoveryURL)
 						v.FeedFreeBikeStatus = nil
 						continue NEXT_SYSTEM // Bikeless system
 					}
 				NEXT_BIKE:
 					for _, bike := range v.FeedFreeBikeStatus.Data.Bikes {
 						if bike.Lat == nil || bike.Lon == nil {
-							log.Println("Placeless bike", *bike.BikeID)
+							// log.Println("Placeless bike", *bike.BikeID)
 							continue NEXT_BIKE
 						}
 						d := Distance(bike.Lat, bike.Lon)

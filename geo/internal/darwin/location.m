@@ -74,26 +74,54 @@ int QuietLog (FILE *stream, NSString *format, ...)
     return 0;
 }
 
-int run(int h) {
-  id obj = [[Handler alloc] init];
-  [obj withHandle:h];
-  id lm = nil;
-  TRY_AGAIN:
-  if ([CLLocationManager locationServicesEnabled]) {
-    QuietDebug(@"location service enabled\n");
-    lm = [[CLLocationManager alloc] init];
-    [lm setDelegate:obj];
-    [lm startUpdatingLocation];
-  }
-  else {
-    QuietDebug(@"location service disabled\n");
-    goWithError(h, nsstring2cstring(@"location service disabled"));
-    sleep(1);
-    goto TRY_AGAIN;
-  }
+// Create a new NSThread subclass
+@interface MyThread : NSThread
 
-  CFRunLoopRun();
-  [lm release];
-  [obj release];
-  return 0;
+// Add properties for values that need to be passed from the caller to the new
+// thread. Caller must not modify these once the thread is started to avoid
+// threading issues (or the properties must be made thread-safe using locks).
+@property int handle;
+
+@end
+
+@implementation MyThread
+
+- (void)main
+{
+    @autoreleasepool {
+        int h = self.handle;
+        // The main thread method goes here
+        id obj = [[Handler alloc] init];
+        [obj withHandle:h];
+        id lm = nil;
+        TRY_AGAIN:
+        if ([CLLocationManager locationServicesEnabled]) {
+          QuietDebug(@"location service enabled\n");
+          lm = [[CLLocationManager alloc] init];
+          [lm setDelegate:obj];
+          [lm startUpdatingLocation];
+        }
+        else {
+          QuietDebug(@"location service disabled\n");
+          goWithError(h, nsstring2cstring(@"location service disabled"));
+          sleep(1);
+          goto TRY_AGAIN;
+        }
+        AGAIN:
+        CFRunLoopRun(); 
+        sleep(1);
+        // QuietDebug(@"CFRunLoopRun exited\n");
+        goto AGAIN; // Why do we have to busy loop? It appears to stop doing so it has permissions
+        [lm release];
+        [obj release];
+    }
+}
+
+@end
+
+
+int run(int h) {
+  MyThread *thread = [[MyThread alloc] init];
+  thread.handle = h;
+  [thread start];
 }

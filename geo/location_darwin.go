@@ -25,6 +25,7 @@ func Location(ctx context.Context) (<-chan LocationInfo, error) {
 				return
 			case err := <-s.Errors():
 				log.Println("Darwin Location Error", err)
+				// TODO prompt to /usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
 			case loc := <-s.Locations():
 			ANOTHER:
 				select {
