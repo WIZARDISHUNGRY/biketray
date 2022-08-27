@@ -70,13 +70,15 @@ func (s *Service) Run(ctx context.Context) error {
 	h := getHandle(s)
 
 	go func() {
+		_ = C.run(C.int(h))
+		log.Println("darwin location services returned")
 		// defer close(s.cgoErrors)
 		// defer close(s.locations)
 		// TODO need way to signal location services to shutdown
 
-		_ = C.run(C.int(h))
-		log.Println("darwin location services returned")
+		// TODO does this not work in goroutine
 	}() //  TODO no way to cancel
+
 	return nil
 }
 

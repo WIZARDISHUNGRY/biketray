@@ -30,6 +30,7 @@ func (m *Manager) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case loc := <-m.c:
+			panic("ok")
 			m.mutex.Lock()
 			fmt.Println("geo mgr", loc)
 			m.lastLoc = loc

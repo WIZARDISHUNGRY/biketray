@@ -23,12 +23,19 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	systray.Run(func() { onReady(ctx) }, func() { onExit(ctx, cancel) })
+	var locationF geo.LocationFunc = geo.Location
+	locationF = geo.RateLimit(locationF, 5, 15*time.Second)
+
+	locChan, err := locationF(ctx)
+	if err != nil {
+		log.Fatalf("locationF: %v", err)
+	}
+	systray.Run(func() { onReady(ctx, locChan) }, func() { onExit(ctx, cancel) })
 }
 
 const timeFmt = time.RFC822
 
-func onReady(ctx context.Context) {
+func onReady(ctx context.Context, locChan <-chan geo.LocationInfo) {
 
 	sigusr1 := make(chan os.Signal, 1)
 	signal.Notify(sigusr1, syscall.SIGUSR1)
@@ -44,12 +51,8 @@ func onReady(ctx context.Context) {
 	statusMenu := systray.AddMenuItem("Loading...", "")
 	statusMenu.Disable()
 
-	var (
-		locChan <-chan geo.LocationInfo
-		err     error
-	)
-
 	var locationF geo.LocationFunc = geo.Location
+	_ = locationF
 
 	if math.IsNaN(*lat) && math.IsNaN(*lon) {
 
@@ -111,13 +114,6 @@ func onReady(ctx context.Context) {
 			systray.AddSeparator()
 			return c, nil
 		}
-	}
-
-	locationF = geo.RateLimit(locationF, 5, 15*time.Second)
-
-	locChan, err = locationF(ctx)
-	if err != nil {
-		log.Fatalf("locationF: %v", err)
 	}
 
 	menusForSystem := make(map[systems.System]*systray.MenuItem)
