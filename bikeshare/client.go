@@ -58,10 +58,6 @@ func (c *Client) run(ctx context.Context) {
 LOOP:
 	for ctx.Err() == nil {
 
-		if ctx.Err() != nil {
-			return
-		}
-
 		var ss gbfs.FeedStationStatus
 		var stationMap map[gbfs.ID]*gbfs.FeedStationStatusStation
 		var wantedLen int
@@ -148,6 +144,7 @@ LOOP:
 					distance /= 1000
 				}
 
+				// TODO: Darwin doesn't like newlines
 				str := fmt.Sprintf("%s (%4.1f%s %2s)\n%s", *s.Name, distance, unit, direction(bearing), statusStr)
 				output = append(output, outputTemp{distance: distance, line: str})
 			}
