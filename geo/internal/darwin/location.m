@@ -1,6 +1,7 @@
 #import <cocoa/cocoa.h>
 #import <CoreLocation/CoreLocation.h>
 #import "location.h"
+#include <unistd.h>
 
 int
 nsnumber2int(NSNumber *i) {
@@ -77,6 +78,7 @@ int run(int h) {
   id obj = [[Handler alloc] init];
   [obj withHandle:h];
   id lm = nil;
+  TRY_AGAIN:
   if ([CLLocationManager locationServicesEnabled]) {
     QuietDebug(@"location service enabled\n");
     lm = [[CLLocationManager alloc] init];
@@ -85,7 +87,9 @@ int run(int h) {
   }
   else {
     QuietDebug(@"location service disabled\n");
-    return 1;
+    goWithError(h, nsstring2cstring(@"location service disabled"));
+    sleep(1);
+    goto TRY_AGAIN;
   }
 
   CFRunLoopRun();

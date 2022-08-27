@@ -4,21 +4,36 @@ package geo
 
 import (
 	"context"
-	"time"
+	"log"
+
+	"jonwillia.ms/biketray/geo/internal/darwin"
 )
 
 func Location(ctx context.Context) (<-chan LocationInfo, error) {
 	output := make(chan LocationInfo, 1)
+	s := darwin.Service{}
+	err := s.Run(ctx) // TODO we don't retry if location services are disabled
+	if err != nil {
+		return nil, err
+	}
 
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
+				// No cleanup of location services
 				return
-
-			case <-time.After(time.Second):
-				output <- LocationInfo{
-					Description: "WTF",
+			case err := <-s.Errors():
+				log.Println("Darwin Location Error", err)
+			case loc := <-s.Locations():
+			ANOTHER:
+				select {
+				case <-ctx.Done():
+					// No cleanup of location services
+					return
+				case output <- LocationInfo{Lat: loc.Lat, Lon: loc.Lon}:
+				case loc = <-s.Locations():
+					goto ANOTHER
 				}
 			}
 		}

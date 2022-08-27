@@ -1,4 +1,4 @@
-package main
+package darwin
 
 //#cgo CFLAGS: -x objective-c
 //#cgo LDFLAGS: -framework cocoa -framework Foundation -framework CoreLocation
@@ -7,10 +7,12 @@ import "C"
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"sync"
 )
+
+// https://github.com/WIZARDISHUNGRY/osx-location
+// https://coderwall.com/p/l9jr5a/accessing-cocoa-objective-c-from-go-with-cgo
 
 // NSNumber -> Go int
 func goint(i *C.NSNumber) int { return int(C.nsnumber2int(i)) }
@@ -68,15 +70,12 @@ func (s *Service) Run(ctx context.Context) error {
 	h := getHandle(s)
 
 	go func() {
-		defer close(s.cgoErrors)
-		defer close(s.locations)
-		defer func() {
-			r := recover()
-			if r != nil {
-				s.cgoErrors <- fmt.Errorf("recover(): %v", r)
-			}
-		}()
-		C.run(C.int(h))
+		// defer close(s.cgoErrors)
+		// defer close(s.locations)
+		// TODO need way to signal location services to shutdown
+
+		_ = C.run(C.int(h))
+		log.Println("darwin location services returned")
 	}() //  TODO no way to cancel
 	return nil
 }
@@ -86,23 +85,4 @@ func (s *Service) Errors() <-chan error {
 }
 func (s *Service) Locations() <-chan Location {
 	return s.locations
-}
-
-// https://github.com/WIZARDISHUNGRY/osx-location
-// https://coderwall.com/p/l9jr5a/accessing-cocoa-objective-c-from-go-with-cgo
-func main() {
-	s := Service{}
-	ctx := context.Background()
-	err := s.Run(ctx)
-	if err != nil {
-		log.Fatalf("Run: %v", err)
-	}
-	go func() {
-		for l := range s.Locations() {
-			log.Println(l)
-		}
-	}()
-	for e := range s.Errors() {
-		log.Println(e)
-	}
 }
