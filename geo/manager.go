@@ -65,3 +65,9 @@ func (m *Manager) Unsubscribe(c <-chan LocationInfo) {
 	delete(m.dests, c)
 	m.mutex.Unlock()
 }
+
+func (m *Manager) CurrentLocation() (LocationInfo, bool) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	return m.lastLoc, m.hasLoc
+}

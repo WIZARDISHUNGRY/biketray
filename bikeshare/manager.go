@@ -20,7 +20,12 @@ type Manager struct {
 
 type ClientResult struct {
 	System systems.System
-	Data   []string
+	Data   []Datum
+}
+
+type Datum struct {
+	Label        string
+	LocationInfo geo.LocationInfo
 }
 
 func NewManager(ctx context.Context, geoMgr *geo.Manager, nearbySystemsC <-chan map[systems.System]systems.NearbyResult) *Manager {
@@ -60,7 +65,7 @@ func (m *Manager) run(ctx context.Context) {
 		}
 	}
 }
-func (m *Manager) clientResult(k systems.System, data []string) {
+func (m *Manager) clientResult(k systems.System, data []Datum) {
 	m.clientResults <- ClientResult{System: k, Data: data}
 }
 func (m *Manager) ClientResults() <-chan ClientResult {

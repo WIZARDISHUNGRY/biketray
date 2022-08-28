@@ -16,6 +16,7 @@ import (
 	"github.com/petoc/gbfs"
 	"jonwillia.ms/biketray/bikeshare"
 	"jonwillia.ms/biketray/geo"
+	"jonwillia.ms/biketray/links"
 	"jonwillia.ms/biketray/systems"
 )
 
@@ -129,10 +130,23 @@ func onReady(ctx context.Context) {
 		put(mi)
 	}
 
+	// TODO no mutex
+	var clickHandlers map[*systray.MenuItem]func() = make(map[*systray.MenuItem]func())
+
 	initSubMenus := func(mi *systray.MenuItem, system systems.System) {
 		for i := 0; i < 10; i++ {
 			sub := mi.AddSubMenuItem("", "")
 			sub.Hide()
+			go func() {
+				for {
+					<-sub.ClickedCh
+					ch, ok := clickHandlers[sub]
+					if !ok {
+						continue
+					}
+					ch()
+				}
+			}()
 			subMenus[mi] = append(subMenus[mi], sub)
 		}
 	}
@@ -228,7 +242,18 @@ func onReady(ctx context.Context) {
 				}
 				//mi.Check()
 				mi.Show()
-				mi.SetTitle(cr.Data[i])
+				mi.SetTitle(cr.Data[i].Label)
+				clickHandlers[mi] = func() {
+					cl, ok := geoMgr.CurrentLocation()
+					l := &cl
+					if !ok {
+						l = nil
+					}
+					err := links.OpenLocation(l, cr.Data[i].LocationInfo)
+					if err != nil {
+						log.Println("click handler", err)
+					}
+				}
 			}
 		}
 	}

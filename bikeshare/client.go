@@ -97,7 +97,7 @@ LOOP:
 
 		type outputTemp struct {
 			distance float64
-			line     string
+			datum    Datum
 		}
 
 		var output = make([]outputTemp, 0, wantedLen)
@@ -146,7 +146,16 @@ LOOP:
 
 				// TODO: Darwin doesn't like newlines
 				str := fmt.Sprintf("%s (%4.1f%s %2s)\n%s", *s.Name, distance, unit, direction(bearing), statusStr)
-				output = append(output, outputTemp{distance: distance, line: str})
+				output = append(output, outputTemp{
+					distance: distance,
+					datum: Datum{
+						Label: str,
+						LocationInfo: geo.LocationInfo{
+							Lat: s.Lat.Float64,
+							Lon: s.Lon.Float64,
+						},
+					},
+				})
 			}
 		}
 
@@ -170,14 +179,23 @@ LOOP:
 				}
 
 				str := fmt.Sprintf("%s (%4.1f%s %2s)", name, distance, unit, direction(bearing))
-				output = append(output, outputTemp{distance: distance, line: str})
+				output = append(output, outputTemp{
+					distance: distance,
+					datum: Datum{
+						Label: str,
+						LocationInfo: geo.LocationInfo{
+							Lat: b.Lat.Float64,
+							Lon: b.Lon.Float64,
+						},
+					},
+				})
 			}
 		}
 
 		slices.SortFunc(output, func(a, b outputTemp) bool { return a.distance < b.distance })
-		lines := make([]string, 0, len(output))
+		lines := make([]Datum, 0, len(output))
 		for _, ot := range output {
-			lines = append(lines, ot.line)
+			lines = append(lines, ot.datum)
 		}
 		select {
 		case <-ctx.Done():

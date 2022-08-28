@@ -210,11 +210,11 @@ func Nearby(ctx context.Context, clientsC <-chan map[System]*gbfs.Client, mgr *g
 				g.Go(func() error {
 					var si gbfs.FeedStationInformation
 					if err := client.Get(&si); err != nil {
-						fmt.Println("station info", system.Name, system.AutoDiscoveryURL, err)
+						// log.Println("station info", system.Name, system.AutoDiscoveryURL, err)
 					}
 					var freeBike gbfs.FeedFreeBikeStatus
 					if err := client.Get(&freeBike); err != nil {
-						fmt.Println("free bike", system.Name, system.AutoDiscoveryURL, err)
+						// log.Println("free bike", system.Name, system.AutoDiscoveryURL, err)
 					}
 
 					if (si.Data == nil || len(si.Data.Stations) == 0) &&
