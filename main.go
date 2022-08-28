@@ -39,7 +39,7 @@ func onReady(ctx context.Context) {
 
 	flag.Parse()
 
-	systray.SetIcon(icon.Data)
+	systray.SetIcon(icon.Data) // 32x32
 	systray.SetTitle("BikeTray")
 	statusMenu := systray.AddMenuItem("Loading...", "")
 	statusMenu.Disable()

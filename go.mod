@@ -9,6 +9,7 @@ require (
 	github.com/getlantern/systray v1.2.1
 	github.com/maltegrosse/go-geoclue2 v0.1.1
 	github.com/petoc/gbfs v0.0.0-20220812093314-768981f2d0aa
+	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
 )
@@ -23,7 +24,6 @@ require (
 	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/godbus/dbus/v5 v5.0.3 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
-	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966 // indirect
 	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
