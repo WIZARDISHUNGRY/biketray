@@ -251,7 +251,7 @@ func onReady(ctx context.Context) {
 				title := cr.Data[i].Label
 				sparkline := cr.Data[i].Sparkline
 				if supportMultiline {
-					title += "\n" + sparkline
+					title += sparkline
 				} else {
 					mi.SetTooltip(sparkline)
 				}
