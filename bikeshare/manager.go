@@ -24,8 +24,8 @@ type ClientResult struct {
 }
 
 type Datum struct {
-	Label        string
-	LocationInfo geo.LocationInfo
+	Label, Sparkline string
+	LocationInfo     geo.LocationInfo
 }
 
 func NewManager(ctx context.Context, geoMgr *geo.Manager, nearbySystemsC <-chan map[systems.System]systems.NearbyResult) *Manager {

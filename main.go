@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -26,6 +27,8 @@ func main() {
 	systray.Run(func() { onReady(ctx) }, func() { onExit(ctx, cancel) })
 }
 
+var supportMultiline = runtime.GOOS != "darwin"
+
 const timeFmt = time.RFC822
 
 func onReady(ctx context.Context) {
@@ -38,9 +41,10 @@ func onReady(ctx context.Context) {
 	lon := flag.Float64("lon", math.NaN(), "lat")
 
 	flag.Parse()
-
+	_ = icon.Data
 	systray.SetIcon(icon.Data) // 32x32
 	systray.SetTitle("BikeTray")
+	systray.SetTooltip("BikeTray")
 	statusMenu := systray.AddMenuItem("Loading...", "")
 	statusMenu.Disable()
 
@@ -244,7 +248,15 @@ func onReady(ctx context.Context) {
 				}
 				//mi.Check()
 				mi.Show()
-				mi.SetTitle(cr.Data[i].Label)
+				title := cr.Data[i].Label
+				sparkline := cr.Data[i].Sparkline
+				if supportMultiline {
+					title += "\n" + sparkline
+				} else {
+					mi.SetTooltip(sparkline)
+				}
+				mi.SetTitle(title)
+
 				clickHandlers[mi] = func() {
 					cl, ok := geoMgr.CurrentLocation()
 					l := &cl

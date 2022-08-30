@@ -112,6 +112,7 @@ LOOP:
 
 				statusStr := "?????"
 				st, ok := stationMap[*s.StationID]
+				var sl string
 				if ok && st.NumBikesAvailable != nil && s.Capacity != nil {
 
 					supStrs := []string{}
@@ -134,8 +135,8 @@ LOOP:
 						supStr = fmt.Sprintf(" (%s)", strings.Join(supStrs, " "))
 					}
 
-					sl := string([]rune(spark.Line(append([]float64{0}, sparklines[*s.StationID]...)))[1:])
-					statusStr = fmt.Sprintf("%2.1d/%2.1d%s %s", *st.NumBikesAvailable, *s.Capacity, supStr, sl)
+					sl = string([]rune(spark.Line(append([]float64{0}, sparklines[*s.StationID]...)))[1:])
+					statusStr = fmt.Sprintf("%2.1d/%2.1d%s", *st.NumBikesAvailable, *s.Capacity, supStr)
 				}
 
 				unit := "m"
@@ -145,11 +146,12 @@ LOOP:
 				}
 
 				// TODO: Darwin doesn't like newlines
-				str := fmt.Sprintf("%s (%4.1f%s %2s)\n%s", *s.Name, distance, unit, direction(bearing), statusStr)
+				str := fmt.Sprintf("%s (%4.1f%s %2s)\r\n%s", *s.Name, distance, unit, direction(bearing), statusStr)
 				output = append(output, outputTemp{
 					distance: distance,
 					datum: Datum{
-						Label: str,
+						Label:     str,
+						Sparkline: sl,
 						LocationInfo: geo.LocationInfo{
 							Lat: s.Lat.Float64,
 							Lon: s.Lon.Float64,
