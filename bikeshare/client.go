@@ -40,7 +40,7 @@ func (c *Client) Close() {
 }
 
 func (c *Client) run(ctx context.Context) {
-	locationC := c.mgr.geoMgr.Subscribe()
+	locationC := c.mgr.geoMgr.Subscribe(false)
 	defer c.mgr.geoMgr.Unsubscribe(locationC)
 	log.Println("run")
 

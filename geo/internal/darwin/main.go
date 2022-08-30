@@ -29,7 +29,7 @@ func gostring(s *C.NSString) string { return C.GoString(cstring(s)) }
 func goWithError(h C.int, str *C.char) {
 	s := byHandle(int(h))
 	errStr := C.GoString(str)
-	s.cgoErrors <- errors.New(errStr)
+	s.locations <- Location{Error: errors.New(errStr)}
 }
 
 //export goWithCoords
@@ -39,12 +39,12 @@ func goWithCoords(h C.int, coords *C.Coords) {
 }
 
 type Service struct {
-	cgoErrors chan error
 	locations chan Location
 }
 
 type Location struct {
 	Lat, Lon float64
+	Error    error
 }
 
 var (
@@ -67,7 +67,6 @@ func getHandle(s *Service) int {
 }
 
 func (s *Service) Run(ctx context.Context) error {
-	s.cgoErrors = make(chan error, 1)
 	s.locations = make(chan Location, 1)
 	h := getHandle(s)
 
@@ -84,9 +83,6 @@ func (s *Service) Run(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) Errors() <-chan error {
-	return s.cgoErrors
-}
 func (s *Service) Locations() <-chan Location {
 	return s.locations
 }

@@ -178,7 +178,7 @@ func Nearby(ctx context.Context, clientsC <-chan map[System]*gbfs.Client, mgr *g
 	c := make(chan map[System]NearbyResult, 1)
 
 	go func() {
-		locC := mgr.Subscribe()
+		locC := mgr.Subscribe(false)
 		defer mgr.Unsubscribe(locC)
 
 		var location geo.LocationInfo

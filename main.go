@@ -77,12 +77,12 @@ func onReady(ctx context.Context) {
 
 			var teleportItems []*systray.MenuItem
 			teleportLocs := []geo.LocationInfo{
-				{"Central Park", 40.785091, -73.968285},
-				{"Spanish Steps, Rome", 41.905991, 12.482775},
-				{"Corona Heights Park, SF", 37.765678, -122.438713},
-				{"Montreal", 45.508888, -73.561668},
-				{"Buckingham Palace", 51.501476, -0.140634},
-				{"Soldier Field, Chicago", 41.862366, -87.617256},
+				{"Central Park", 40.785091, -73.968285, nil},
+				{"Spanish Steps, Rome", 41.905991, 12.482775, nil},
+				{"Corona Heights Park, SF", 37.765678, -122.438713, nil},
+				{"Montreal", 45.508888, -73.561668, nil},
+				{"Buckingham Palace", 51.501476, -0.140634, nil},
+				{"Soldier Field, Chicago", 41.862366, -87.617256, nil},
 				{Description: "Omphalos"},
 			}
 
@@ -107,6 +107,17 @@ func onReady(ctx context.Context) {
 			return c, nil
 		}
 	}
+
+	locationF = geo.RateLimit(locationF, 5, 15*time.Second)
+
+	locChan, err := locationF(ctx)
+	if err != nil {
+		log.Fatalf("locationF: %v", err)
+	}
+
+	geoMgr := geo.NewManager(ctx, locChan)
+
+	MenuItemLocation(ctx, geoMgr)
 
 	menusForSystem := make(map[systems.System]*systray.MenuItem)
 	subMenus := make(map[*systray.MenuItem][]*systray.MenuItem)
@@ -157,15 +168,6 @@ func onReady(ctx context.Context) {
 		<-mQuit.ClickedCh
 		systray.Quit()
 	}()
-
-	locationF = geo.RateLimit(locationF, 5, 15*time.Second)
-
-	locChan, err := locationF(ctx)
-	if err != nil {
-		log.Fatalf("locationF: %v", err)
-	}
-
-	geoMgr := geo.NewManager(ctx, locChan)
 
 	start := time.Now()
 	csvSystems := systems.Load() // slow!

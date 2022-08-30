@@ -8,6 +8,7 @@ import (
 type LocationInfo struct {
 	Description string
 	Lat, Lon    float64
+	Error       error
 }
 type LocationFunc func(ctx context.Context) (<-chan LocationInfo, error)
 

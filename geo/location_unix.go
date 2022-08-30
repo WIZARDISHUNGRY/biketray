@@ -46,20 +46,25 @@ func Location(ctx context.Context) (<-chan LocationInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("client.Start: %w", err)
 	}
-LOC_AGAIN:
-	var location geoclue2.GeoclueLocation
-	location, err = client.GetLocation()
-	if err != nil {
-		log.Println("GetLocation", err)
-		time.Sleep(100 * time.Millisecond)
-		goto LOC_AGAIN
-		return nil, fmt.Errorf("client.GetLocation: %w", err) // TODO might this fail
-	}
 
-	updates := client.SubscribeLocationUpdated()
 	go func() {
+	LOC_AGAIN:
+		var location geoclue2.GeoclueLocation
+		location, err = client.GetLocation()
+		if err != nil {
+			log.Println("GetLocation", err)
+			select {
+			case <-ctx.Done():
+				return
+			case output <- LocationInfo{Error: err}:
+			}
+			time.Sleep(100 * time.Millisecond)
+			goto LOC_AGAIN
+		}
+		output <- newLocationInfo(location)
+
+		updates := client.SubscribeLocationUpdated()
 		for {
-			output <- newLocationInfo(location)
 			select {
 			case <-ctx.Done():
 				return
@@ -78,18 +83,29 @@ LOC_AGAIN:
 	return output, nil
 }
 
-func newLocationInfo(loc geoclue2.GeoclueLocation) LocationInfo {
+func newLocationInfo(loc geoclue2.GeoclueLocation) (li LocationInfo) {
 	lat, err := loc.GetLatitude()
 	if err != nil {
 		log.Println("GetLatitude", err)
+		li.Error = err
+		return
 	}
+	li.Lat = lat
+
 	lon, err := loc.GetLongitude()
 	if err != nil {
 		log.Println("GetLongitude", err)
+		li.Error = err
+		return
 	}
+	li.Lon = lon
+
 	desc, err := loc.GetDescription()
 	if err != nil {
 		log.Println("GetDescription", err)
+		li.Error = err
+		return
 	}
-	return LocationInfo{Lat: lat, Lon: lon, Description: desc}
+	li.Description = desc
+	return
 }

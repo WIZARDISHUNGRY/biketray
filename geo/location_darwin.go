@@ -23,16 +23,16 @@ func Location(ctx context.Context) (<-chan LocationInfo, error) {
 			case <-ctx.Done():
 				// No cleanup of location services
 				return
-			case err := <-s.Errors():
-				log.Println("Darwin Location Error", err)
-				// TODO prompt to /usr/bin/open "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
 			case loc := <-s.Locations():
+				if loc.Error != nil {
+					log.Println("Darwin Location Error", loc.Error)
+				}
 			ANOTHER:
 				select {
 				case <-ctx.Done():
 					// No cleanup of location services
 					return
-				case output <- LocationInfo{Lat: loc.Lat, Lon: loc.Lon}:
+				case output <- LocationInfo{Lat: loc.Lat, Lon: loc.Lon, Error: loc.Error}:
 				case loc = <-s.Locations():
 					goto ANOTHER
 				}

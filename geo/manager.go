@@ -2,7 +2,6 @@ package geo
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"sync"
 )
@@ -12,13 +11,19 @@ type Manager struct {
 	hasLoc  bool
 	lastLoc LocationInfo
 	mutex   sync.Mutex
-	dests   map[<-chan LocationInfo]chan<- LocationInfo
+	dests   map[<-chan LocationInfo]struct {
+		c             chan<- LocationInfo
+		includeErrors bool
+	}
 }
 
 func NewManager(ctx context.Context, c <-chan LocationInfo) *Manager {
 	m := &Manager{
-		c:     c,
-		dests: make(map[<-chan LocationInfo]chan<- LocationInfo),
+		c: c,
+		dests: make(map[<-chan LocationInfo]struct {
+			c             chan<- LocationInfo
+			includeErrors bool
+		}),
 	}
 	go m.run(ctx)
 	return m
@@ -29,18 +34,37 @@ func (m *Manager) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case loc := <-m.c:
-			fmt.Println("ok", loc)
+		case loc, ok := <-m.c:
+			if !ok {
+				log.Println("geoMgr read on closed channel, exiting")
+				return
+			}
 			m.mutex.Lock()
-			fmt.Println("geo mgr", loc)
-			m.lastLoc = loc
-			m.hasLoc = true
-			for _, c := range m.dests {
+			if loc.Error == nil {
+				m.lastLoc = loc
+				m.hasLoc = true
+			}
+			i := 0
+			for drain, sub := range m.dests {
+				i++
+
+				if loc.Error != nil && !sub.includeErrors {
+					continue
+				}
+
+			OUTPUT_AGAIN:
 				select {
 				case <-ctx.Done():
 					m.mutex.Unlock()
 					return
-				case c <- loc:
+				case sub.c <- loc:
+				default:
+					log.Println("geoMgr clearing blocked channel", i)
+					select {
+					case <-drain:
+					default:
+					}
+					goto OUTPUT_AGAIN
 				}
 			}
 			m.mutex.Unlock()
@@ -48,12 +72,17 @@ func (m *Manager) run(ctx context.Context) {
 	}
 }
 
-func (m *Manager) Subscribe() <-chan LocationInfo {
+func (m *Manager) Subscribe(includeErrors bool) <-chan LocationInfo {
 	c := make(chan LocationInfo, 1)
 	m.mutex.Lock()
-	m.dests[c] = c
-	if m.hasLoc {
-		log.Println("hasLoc")
+	m.dests[c] = struct {
+		c             chan<- LocationInfo
+		includeErrors bool
+	}{
+		c:             c,
+		includeErrors: includeErrors,
+	}
+	if m.hasLoc && (includeErrors || m.lastLoc.Error == nil) {
 		c <- m.lastLoc
 	}
 	m.mutex.Unlock()
