@@ -94,7 +94,7 @@ int QuietLog (FILE *stream, NSString *format, ...)
         id obj = [[Handler alloc] init];
         [obj withHandle:h];
         id lm = nil;
-        TRY_AGAIN:
+        MY_TRY_AGAIN:
         if ([CLLocationManager locationServicesEnabled]) {
           QuietDebug(@"location service enabled\n");
           lm = [[CLLocationManager alloc] init];
@@ -105,7 +105,7 @@ int QuietLog (FILE *stream, NSString *format, ...)
           QuietDebug(@"location service disabled\n");
           goWithError(h, nsstring2cstring(@"location service disabled"));
           sleep(1);
-          goto TRY_AGAIN;
+          goto MY_TRY_AGAIN;
         }
         AGAIN:
         CFRunLoopRun(); 
